@@ -6,6 +6,7 @@
 
 ;; Enemy struct
 	.rsset $0000
+E_enemy_Id			.RS 1
 E_spriteId			.RS 1
 E_moveRight			.RS 1
 E_moveLeft			.RS 1
@@ -13,6 +14,8 @@ E_moveUp			.RS 1
 E_moveDown			.RS 1
 E_health			.RS 1
 E_speed				.RS 1
+E_moveFrames  .RS 1
+E_waitFrames  .RS 1
 EnemyStructSize	.RS 1
 
 
@@ -27,7 +30,9 @@ marioSprite					.RS 1 ; marios start adress
 marioCurrentSpeed		.RS 1 ; marios current move speed
 
 tempVal1							.RS 1 ; variable used in stuff
-tempVal2							.RS 1 ; variable used in stuff
+tempVal2							.RS 1 ; variable used in stuff´
+
+FrameCounter					.RS 10
 
 FirstEnemy						.RS EnemyStructSize
 
@@ -109,11 +114,9 @@ LoadSpritesLoop:
   LDA sprites, x        ; load data from address (sprites +  x)
   STA $0200, x          ; store into RAM address ($0200 + x)
   INX                   ; X = X + 1
-  CPX #$20              ; Compare X to hex $10, decimal 32
+  CPX #$30              ; Compare X to hex $10, decimal 32
   BNE LoadSpritesLoop   ; Branch to LoadSpritesLoop if compare was Not Equal to zero
                         ; if compare was equal to 32, keep going down
-              
-              
               
 LoadBackground:
   LDA $2002             ; read PPU status to reset the high/low latch
@@ -163,28 +166,21 @@ LoadAttributeLoop:
   LDA #%00011110   ; enable sprites, enable background, no clipping on left side
   STA $2001
   
-  LDA #$10				; Second characters sprites start at 16 ( 4 sprites a 4 bytes )
-  LDY #E_spriteId
-  STA FirstEnemy,Y
-  
-  LDA #$00						; value to set on the variable we specify in the next line
-  LDY #E_moveRight		; the offset ( aka variable we want to save to )
-  STA FirstEnemy,Y		; Completing the variable set instruction using data specified above
-  
-  LDA #$00
-  LDY #E_moveLeft
-  STA FirstEnemy,Y
-  
-  LDA #$01
-  LDY #E_speed
-  STA FirstEnemy,Y
+  setupEnemies:
+	LDX #$00
+	setupEnemiesLoop:
+		LDA enemyData, X
+		STA FirstEnemy,X
+		
+		INX
+		CPX $A
+		BNE setupEnemiesLoop
   
 
 Forever:
   JMP Forever     ;jump back to Forever, infinite loop
   
  
-
 NMI:
   LDA #$00
   STA $2003       ; set the low byte (00) of the RAM address
@@ -205,7 +201,7 @@ NMI:
   STA $2005
   
    ;;;all graphics updates done by here, run game engine
-  
+  JSR UpdateFrameCounter
 
   JSR ReadController1 ; Get controller data for P1
   JSR ReadController2 ; Controller 2
@@ -219,6 +215,18 @@ NMI:
 	
 	RTI             ; return from interrupt
 	
+
+UpdateFrameCounter:
+	INC FrameCounter
+  LDA #$3B
+  CMP FrameCounter
+  BEQ ResetCounter
+  	JMP FrameCounterDone
+ResetCounter:
+  LDA #$00
+  STA FrameCounter 
+FrameCounterDone:
+	RTS
 
 UpdateNPC:
   LDA #$00						; value to set on the variable we specify in the next line
@@ -236,13 +244,46 @@ UpdateNPC:
   LDA #$00						; value to set on the variable we specify in the next line
   LDY #E_moveDown			; the offset ( aka variable we want to save to )
   STA FirstEnemy,Y		; Completing the variable set instruction using data specified above
+  
+  LDY #E_waitFrames
+	LDA FirstEnemy, Y
+	BEQ TickMoveFrames
+		;tick down wait frames
+		SEC
+		SBC #$01
+		STA FirstEnemy, Y
+		
+		;Done updating the npc
+		RTS
+	
+TickMoveFrames:
+	LDY #E_moveFrames
+	LDA FirstEnemy, Y
+	CLC
+	ADC #$01
+	
+	STA FirstEnemy, Y ;store value in struct after increment
+	
+	CMP #$40
+	BNE TickDone
+		; set how many frames to wait
+		LDA #$78
+		LDY #E_waitFrames
+		STA FirstEnemy, Y
+		
+		;Reset moveCOunter
+		LDA #0
+		LDY #E_moveFrames
+		STA FirstEnemy, Y
+TickDone:
+	
 
 ;HORIZONTAL MOVEMENT
 	LDY #E_spriteId
 	LDX FirstEnemy, Y
-	LDA BASE_SPR_ADDR+3, X
+	LDA BASE_SPR_ADDR+3, X ; enemies x value
 	STA tempVal1
-	LDA BASE_SPR_ADDR+3
+	LDA BASE_SPR_ADDR+3 ;the players X value
 	STA tempVal2
 	
 	SEC					 
@@ -340,7 +381,6 @@ UpdateSprites:
 	JSR UpdateMario
 	JSR UpdateEnemies
 	RTS
-
 UpdateEnemies:
 	LDY #E_moveRight
 	LDA FirstEnemy,Y
@@ -539,10 +579,16 @@ sprites:
   .db $18, $38, $01, $20   ;sprite 2
   .DB $18, $39, $01, $28   ;sprite 3
   
-  updateconstants:         ;constants for the use of the sprite_RAM constant           
-  .db $00,$10,$20,$30      ;4 sprites for each meta sprite, so add $10 for each meta sprite we process
-
-
+  ;enemy
+  .db $80, $32, $01, $20   ;sprite 0
+  .db $80, $33, $01, $28   ;sprite 1
+  .db $88, $38, $01, $20   ;sprite 2
+  .DB $88, $39, $01, $28   ;sprite 3
+  
+enemyData:
+	.DB $00, $10, $00, $00, $00, $00, $00, $01, $07, $00
+	.DB $01, $20, $00, $00, $00, $00, $00, $01, $00, $00
+	
 background:
   .db $24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24  ;;row 1
   .db $24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24  ;;all sky
