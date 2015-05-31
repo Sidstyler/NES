@@ -329,11 +329,6 @@ SetMoveDown:
 VerticalMoveDone:
 	RTS
 
-;---------------TESTCODE----------------
-;	CMP tempVal1 
-;	BCC There	 ;mario.X < than FirstEnemy.x?
-;There: ; mario.x < enemy.x
-;-----/
 
 ReadController1:
 	LDA #$01
@@ -344,7 +339,7 @@ ReadController1:
 ReadController1Loop:
 	LDA $4016
 	LSR A 						;shift bits in A accumulator right. Bit0 -> carry
-	ROL buttons1			; sshift bits in buttons1 left. carry is set as bit0
+	ROL buttons1			; shift bits in buttons1 left. carry is set as bit0
 	DEX
 	BNE ReadController1Loop
 	RTS
