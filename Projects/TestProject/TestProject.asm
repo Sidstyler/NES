@@ -31,6 +31,9 @@ marioCurrentSpeed		.RS 1 ; marios current move speed
 
 tempVal1							.RS 1 ; variable used in stuff
 tempVal2							.RS 1 ; variable used in stuff´
+tempVal3							.RS 1 ; variable used in stuff´
+hDistance						.RS 1
+vDistance						.RS 1
 
 FrameCounter					.RS 10
 
@@ -207,6 +210,8 @@ NMI:
   JSR ReadController2 ; Controller 2
 	
   JSR UpdateNPC
+  
+  ;JSR RemoveNPCDiagonalMovement
 	
   JSR SetMoveSpeed
 	
@@ -229,6 +234,10 @@ FrameCounterDone:
 	RTS
 
 UpdateNPC:
+	LDA #$00
+	STA hDistance
+	STA vDistance
+
   LDA #$00						; value to set on the variable we specify in the next line
   LDY #E_moveRight		; the offset ( aka variable we want to save to )
   STA FirstEnemy,Y		; Completing the variable set instruction using data specified above
@@ -289,8 +298,21 @@ TickDone:
 	SEC					 
 	LDA tempVal1  
 	SBC tempVal2 
-	BEQ HorizontalMoveDone
+	STA tempVal3 ;tempVal3 is the result tempVal1 - tempVal2
 	
+	BEQ HorizontalMoveDone
+
+;;;;;;;;;;;;;;;;;;;;;;;;	
+	BPL FoundHAbs
+		LDA #0
+		SEC
+		SBC tempVal3
+		
+	FoundHAbs:
+	STA hDistance
+	LDA tempVal3
+;;;;;;;;;;;;;;;;;;;;;;;
+
 	BMI SetMoveRight
 	;move left
 	LDA #$01
@@ -314,8 +336,19 @@ HorizontalMoveDone:
 	SEC					 
 	LDA tempVal1  
 	SBC tempVal2 
+	STA tempVal3
 	BEQ VerticalMoveDone
-	
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+		BPL FoundVAbs
+			LDA #0
+			SEC
+			SBC tempVal3
+	FoundVAbs:
+	STA vDistance
+	LDA tempVal3
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
 	BMI SetMoveDown
 	;move up
 	LDA #$01
@@ -327,6 +360,32 @@ SetMoveDown:
 	LDY #E_moveDown
 	STA FirstEnemy, Y
 VerticalMoveDone:
+	RTS
+	
+RemoveNPCDiagonalMovement:
+	LDA hDistance
+	CMP vDistance
+	BEQ DiagonalDone
+		BPL RemoveVerticalSpeed
+			LDA #$00
+			
+			LDY #E_moveLeft
+			STA FirstEnemy, Y
+			
+			LDY #E_moveRight
+			STA FirstEnemy, Y
+			
+			JMP DiagonalDone
+	
+	RemoveVerticalSpeed:
+		LDA #$00
+			
+		LDY #E_moveUp
+		STA FirstEnemy, Y
+			
+		LDY #E_moveDown
+		STA FirstEnemy, Y
+DiagonalDone:
 	RTS
 
 
