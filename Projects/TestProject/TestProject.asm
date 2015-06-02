@@ -210,8 +210,6 @@ NMI:
   JSR ReadController2 ; Controller 2
 	
   JSR UpdateNPC
-  
-  ;JSR RemoveNPCDiagonalMovement
 	
   JSR SetMoveSpeed
 	
@@ -234,6 +232,48 @@ FrameCounterDone:
 	RTS
 
 UpdateNPC:
+	LDY #E_waitFrames
+	LDA FirstEnemy, Y
+	BEQ TickMoveFrames
+		;tick down wait frames
+		SEC
+		SBC #$01
+		STA FirstEnemy, Y
+		
+		BNE NoUpdate
+			JSR SetEnemyDirection
+	NoUpdate:
+	
+		
+		;Done updating the npc
+		RTS
+	
+TickMoveFrames:
+	LDY #E_moveFrames
+	LDA FirstEnemy, Y
+	CLC
+	
+	ADC #$01	
+	
+	STA FirstEnemy, Y ;store value in struct after increment
+	
+	CMP #$40
+	BNE TickDone
+		; set how many frames to wait
+		LDA #$78
+		LDY #E_waitFrames
+		STA FirstEnemy, Y
+		
+		;Reset moveCOunter
+		LDA #0
+		LDY #E_moveFrames
+		STA FirstEnemy, Y
+		
+		JSR ResetEnemyMovement
+TickDone:	
+	RTS
+	
+ResetEnemyMovement:
 	LDA #$00
 	STA hDistance
 	STA vDistance
@@ -254,51 +294,12 @@ UpdateNPC:
   LDY #E_moveDown			; the offset ( aka variable we want to save to )
   STA FirstEnemy,Y		; Completing the variable set instruction using data specified above
   
-  LDY #E_waitFrames
-	LDA FirstEnemy, Y
-	BEQ TickMoveFrames
-		;tick down wait frames
-		SEC
-		SBC #$01
-		STA FirstEnemy, Y
-		
-		;Done updating the npc
-		RTS
+	RTS
 	
-TickMoveFrames:
-	LDY #E_moveFrames
-	LDA FirstEnemy, Y
-	CLC
-	ADC #$01
-	
-	STA FirstEnemy, Y ;store value in struct after increment
-	
-	CMP #$40
-	BNE TickDone
-		; set how many frames to wait
-		LDA #$78
-		LDY #E_waitFrames
-		STA FirstEnemy, Y
-		
-		;Reset moveCOunter
-		LDA #0
-		LDY #E_moveFrames
-		STA FirstEnemy, Y
-TickDone:
-	
+SetEnemyDirection:
+	JSR ResetEnemyMovement
 
-;HORIZONTAL MOVEMENT
-	LDY #E_spriteId
-	LDX FirstEnemy, Y
-	LDA BASE_SPR_ADDR+3, X ; enemies x value
-	STA tempVal1
-	LDA BASE_SPR_ADDR+3 ;the players X value
-	STA tempVal2
-	
-	SEC					 
-	LDA tempVal1  
-	SBC tempVal2 
-	STA tempVal3 ;tempVal3 is the result tempVal1 - tempVal2
+	JSR GetHorizontalValues
 	
 	BEQ HorizontalMoveDone
 
@@ -325,18 +326,8 @@ SetMoveRight:
 	STA FirstEnemy, Y
 HorizontalMoveDone:
 
-;VERTICAL MOVEMENT
-	LDY #E_spriteId
-	LDX FirstEnemy, Y
-	LDA BASE_SPR_ADDR, X
-	STA tempVal1
-	LDA BASE_SPR_ADDR
-	STA tempVal2
-	
-	SEC					 
-	LDA tempVal1  
-	SBC tempVal2 
-	STA tempVal3
+	JSR GetVerticalValues
+
 	BEQ VerticalMoveDone
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -349,6 +340,22 @@ HorizontalMoveDone:
 	LDA tempVal3
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
+	LDA vDistance
+	CMP hDistance
+	BCS SetVerticalMovement ;branch when vDistance >= hDistance 
+		RTS
+
+SetVerticalMovement:
+	LDA #$00						; value to set on the variable we specify in the next line
+	LDY #E_moveRight		; the offset ( aka variable we want to save to )
+	STA FirstEnemy,Y		; Completing the variable set instruction using data specified above
+	  
+	LDA #$00						; value to set on the variable we specify in the next line
+	LDY #E_moveLeft			; the offset ( aka variable we want to save to )
+	STA FirstEnemy,Y		; Completing the variable set instruction using data specified above
+
+
+	LDA tempVal3
 	BMI SetMoveDown
 	;move up
 	LDA #$01
@@ -360,6 +367,39 @@ SetMoveDown:
 	LDY #E_moveDown
 	STA FirstEnemy, Y
 VerticalMoveDone:
+	RTS
+	
+	
+;when done A contains enemyX - playerX
+GetHorizontalValues:
+	LDY #E_spriteId
+	LDX FirstEnemy, Y
+	LDA BASE_SPR_ADDR+3, X ; enemies x value
+	STA tempVal1
+	LDA BASE_SPR_ADDR+3 ;the players X value
+	STA tempVal2
+	
+	SEC					 
+	LDA tempVal1  
+	SBC tempVal2 
+	STA tempVal3 ;tempVal3 is the result tempVal1 - tempVal2
+	
+	RTS
+	
+;when done A contains enemyY - playerY
+GetVerticalValues:
+	LDY #E_spriteId
+	LDX FirstEnemy, Y
+	LDA BASE_SPR_ADDR, X
+	STA tempVal1
+	LDA BASE_SPR_ADDR
+	STA tempVal2
+	
+	SEC					 
+	LDA tempVal1  
+	SBC tempVal2 
+	STA tempVal3
+	
 	RTS
 	
 RemoveNPCDiagonalMovement:
@@ -640,7 +680,7 @@ sprites:
   .DB $88, $39, $01, $28   ;sprite 3
   
 enemyData:
-	.DB $00, $10, $00, $00, $00, $00, $00, $01, $07, $00
+	.DB $00, $10, $00, $00, $00, $00, $00, $01, $00, $00
 	.DB $01, $20, $00, $00, $00, $00, $00, $01, $00, $00
 	
 background:
