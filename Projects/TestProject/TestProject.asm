@@ -28,6 +28,7 @@ buttons2						.RS 1 ; player 2 gamepad buttons
 
 marioSprite					.RS 1 ; marios start adress
 marioCurrentSpeed		.RS 1 ; marios current move speed
+marioMirrorX			.RS 1
 
 tempVal1							.RS 1 ; variable used in stuff
 tempVal2							.RS 1 ; variable used in stuff´
@@ -170,6 +171,9 @@ LoadAttributeLoop:
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
   LDA $00
   STA marioSprite
+  
+  LDA $00
+  STA marioMirrorX
 	
   LDA #MARIO_WALK_SPEED
   STA marioCurrentSpeed
@@ -541,6 +545,7 @@ MoveUpDone:
 	RTS
 
 UpdateMario:
+
 	LDA buttons1
 	AND #%00001000
 	BEQ ReadUpDone
@@ -562,21 +567,26 @@ ReadDownDone:
 	LDA buttons1
 	AND #%00000010
 	BEQ ReadLeftDone
+		LDX marioSprite
+		LDY #$01
+		JSR MirrorSprite
+		
+		LDX marioSprite
+		LDY marioCurrentSpeed
 	
-	LDX marioSprite
-	LDY marioCurrentSpeed
-	
-	JSR Move4SpriteLeft
-ReadLeftDone:
+		JSR Move4SpriteLeft
+	ReadLeftDone:
 
 	LDA buttons1
 	AND #%00000001
 	BEQ ReadRightDone
+		LDX marioSprite
+		LDY #$00
+		JSR MirrorSprite
+		
+		LDY marioCurrentSpeed
 	
-	LDX marioSprite
-	LDY marioCurrentSpeed
-
-	JSR Move4SpriteRight
+		JSR Move4SpriteRight
 ReadRightDone:
 	RTS
 	
@@ -631,7 +641,74 @@ Move4SpriteLeft:
   TAY
   JSR UpdateSpriteH
 	RTS 
+	
+; X - sprite ID
+; Y - 0 = no mirror, 1 = mirror
+MirrorSprite:
+	TYA
+	CMP marioMirrorX
+	BNE DoMirror
+		RTS ; return if entervalue is same as current mirror value
+		
+	DoMirror:
+	TYA
+	STA marioMirrorX
 
+	LDA BASE_SPR_ADDR+9, X ; Tile
+	PHA
+	
+	LDA BASE_SPR_ADDR+13, X
+	PHA
+
+	LDA BASE_SPR_ADDR+1, X
+	PHA
+
+	LDA BASE_SPR_ADDR+5, X
+	PHA
+
+	;Store done
+	
+	;set flip bit
+	CPY #$00
+	BNE MirrorLeft
+		LDY #%00000000
+		JMP StoreDone
+	MirrorLeft:
+		LDY #%01000000
+	
+	StoreDone:
+		
+	STY tempVal1
+	
+	LDA BASE_SPR_ADDR+2,X ; get the attribute byte
+	EOR tempVal1
+	
+	LDA tempVal1
+	STA BASE_SPR_ADDR+2,X ; attribute
+	PLA
+	STA BASE_SPR_ADDR+1,X ; Tile
+
+	LDA tempVal1
+	STA BASE_SPR_ADDR+6,X
+	PLA
+	STA BASE_SPR_ADDR+5,X
+	
+	LDA tempVal1
+	STA BASE_SPR_ADDR+10,X
+	PLA
+	STA BASE_SPR_ADDR+9,X
+	
+	LDA tempVal1
+	STA BASE_SPR_ADDR+14,X
+	PLA
+	STA BASE_SPR_ADDR+13,X
+	
+	RTS
+	
+	
+	
+	
+	
 ; X = The sprite offset	
 ; Y = new X value for sprite	
 UpdateSpriteV:
@@ -674,7 +751,7 @@ sprites:
      ;vert tile attr horiz
   
   ;Mario
-  .db $80, $32, $00, $80   ;sprite 0
+  .db $80, $32, $01, $80   ;sprite 0
   .db $80, $33, $00, $88   ;sprite 1
   .db $88, $34, $00, $80   ;sprite 2
   .DB $88, $35, $00, $88   ;sprite 3
@@ -696,7 +773,7 @@ enemyData:
 	.DB $01, $20, $00, $00, $00, $00, $00, $01, $00, $00
 	
 background:
-  .db $45,$45,$45,$45,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24  ;;row 1
+  .db $24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24  ;;row 1
   .db $24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24  ;;all sky
  
   .db $47,$47,$47,$47,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24  ;;row 2
