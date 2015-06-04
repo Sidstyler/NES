@@ -28,7 +28,6 @@ buttons2						.RS 1 ; player 2 gamepad buttons
 
 marioSprite					.RS 1 ; marios start adress
 marioCurrentSpeed		.RS 1 ; marios current move speed
-marioMirrorX			.RS 1
 
 tempVal1							.RS 1 ; variable used in stuff
 tempVal2							.RS 1 ; variable used in stuff´
@@ -171,9 +170,6 @@ LoadAttributeLoop:
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
   LDA $00
   STA marioSprite
-  
-  LDA $00
-  STA marioMirrorX
 	
   LDA #MARIO_WALK_SPEED
   STA marioCurrentSpeed
@@ -258,7 +254,7 @@ UpdateNPC:
 		
 		BNE NoUpdate
 			JSR SetEnemyDirection
-	NoUpdate:
+		NoUpdate:
 	
 		
 		;Done updating the npc
@@ -331,16 +327,28 @@ SetEnemyDirection:
 ;;;;;;;;;;;;;;;;;;;;;;;
 
 	BMI SetMoveRight
-	;move left
-	LDA #$01
-	LDY #E_moveLeft
-	STA FirstEnemy, Y
-	JMP HorizontalMoveDone
-SetMoveRight:
+		;move left
+		LDA #$01
+		LDY #E_moveLeft
+		STA FirstEnemy, Y
+		JMP HorizontalMoveDone
+	SetMoveRight:
+	
 	LDA #$01
 	LDY #E_moveRight
 	STA FirstEnemy, Y
-HorizontalMoveDone:
+	
+	HorizontalMoveDone:
+	
+	LDX #E_spriteId
+	LDA FirstEnemy, X
+	TAX
+	
+	LDY #E_moveLeft
+	LDA FirstEnemy, Y
+	TAY
+	
+	JSR MirrorSprite
 
 	JSR GetVerticalValues
 
@@ -416,32 +424,6 @@ GetVerticalValues:
 	SBC tempVal2 
 	STA tempVal3
 	
-	RTS
-	
-RemoveNPCDiagonalMovement:
-	LDA hDistance
-	CMP vDistance
-	BEQ DiagonalDone
-		BPL RemoveVerticalSpeed
-			LDA #$00
-			
-			LDY #E_moveLeft
-			STA FirstEnemy, Y
-			
-			LDY #E_moveRight
-			STA FirstEnemy, Y
-			
-			JMP DiagonalDone
-	
-	RemoveVerticalSpeed:
-		LDA #$00
-			
-		LDY #E_moveUp
-		STA FirstEnemy, Y
-			
-		LDY #E_moveDown
-		STA FirstEnemy, Y
-DiagonalDone:
 	RTS
 
 
@@ -643,16 +625,25 @@ Move4SpriteLeft:
 	RTS 
 	
 ; X - sprite ID
-; Y - 0 = no mirror, 1 = mirror
+; Y - 0 = no mirror( right ), 1 = mirror ( left ) 
 MirrorSprite:
-	TYA
-	CMP marioMirrorX
-	BNE DoMirror
-		RTS ; return if entervalue is same as current mirror value
-		
+	STY tempVal1
+	
+	LDA BASE_SPR_ADDR+2, X 
+	AND #%01000000
+	BEQ BaseNotMirrored ; do we have mirrored set already?
+		; Yes
+		TYA
+		BEQ DoMirror ; continue if Y-value is opposite of current
+			RTS
+	
+	BaseNotMirrored: ; no
+		TYA
+		BNE DoMirror 
+			RTS
+	
 	DoMirror:
-	TYA
-	STA marioMirrorX
+	
 
 	LDA BASE_SPR_ADDR+9, X ; Tile
 	PHA
@@ -666,22 +657,20 @@ MirrorSprite:
 	LDA BASE_SPR_ADDR+5, X
 	PHA
 
+
 	;Store done
-	
+	LDA BASE_SPR_ADDR+2,X ; get the attribute byte
 	;set flip bit
 	CPY #$00
-	BNE MirrorLeft
-		LDY #%00000000
-		JMP StoreDone
-	MirrorLeft:
-		LDY #%01000000
+	BNE LookLeft
+		;look right
+		AND #%10111111
+		JMP FlipBitDone
+	LookLeft:
+		ORA #%01000000	
+	FlipBitDone:
 	
-	StoreDone:
-		
-	STY tempVal1
-	
-	LDA BASE_SPR_ADDR+2,X ; get the attribute byte
-	EOR tempVal1
+	STA tempVal1
 	
 	LDA tempVal1
 	STA BASE_SPR_ADDR+2,X ; attribute
@@ -704,7 +693,7 @@ MirrorSprite:
 	STA BASE_SPR_ADDR+13,X
 	
 	RTS
-	
+
 	
 	
 	
@@ -751,7 +740,7 @@ sprites:
      ;vert tile attr horiz
   
   ;Mario
-  .db $80, $32, $01, $80   ;sprite 0
+  .db $80, $32, $00, $80   ;sprite 0
   .db $80, $33, $00, $88   ;sprite 1
   .db $88, $34, $00, $80   ;sprite 2
   .DB $88, $35, $00, $88   ;sprite 3
