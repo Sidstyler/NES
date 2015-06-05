@@ -51,7 +51,7 @@ BASE_SPR_ADDR		= $0200
 MARIO_RUN_SPEED	= $03
 MARIO_WALK_SPEED	= $02
 
-NUM_ENEMIES	= $02
+NUM_ENEMIES	= $05
 
 AddrLow:  .rs 1
 AddrHigh:  .rs 1
@@ -127,7 +127,7 @@ LoadSpritesLoop:
   LDA sprites, x        ; load data from address (sprites +  x)
   STA $0200, x          ; store into RAM address ($0200 + x)
   INX                   ; X = X + 1
-  CPX #$30              ; Compare X to hex $10, decimal 32
+  CPX #$10 * ( NUM_ENEMIES + 1 )           ; Compare X to hex $10, decimal 32
   BNE LoadSpritesLoop   ; Branch to LoadSpritesLoop if compare was Not Equal to zero
                         ; if compare was equal to 32, keep going down
               
@@ -916,14 +916,36 @@ sprites:
   .DB $18, $39, $01, $28   ;sprite 3
   
   ;enemy
-  .db $80, $32, $01, $80   ;sprite 0
-  .db $80, $33, $01, $88   ;sprite 1
-  .db $88, $38, $01, $80   ;sprite 2
-  .DB $88, $39, $01, $88   ;sprite 3
+  .db $30, $32, $01, $90   ;sprite 0
+  .db $30, $33, $01, $98   ;sprite 1
+  .db $38, $38, $01, $90   ;sprite 2
+  .DB $38, $39, $01, $98   ;sprite 3
+  
+  ;enemy
+  .db $40, $32, $01, $80   ;sprite 0
+  .db $40, $33, $01, $88   ;sprite 1
+  .db $48, $38, $01, $80   ;sprite 2
+  .DB $48, $39, $01, $88   ;sprite 3
+  
+  ;enemy
+  .db $80, $32, $03, $40   ;sprite 0
+  .db $80, $33, $03, $48   ;sprite 1
+  .db $88, $38, $03, $40   ;sprite 2
+  .DB $88, $39, $03, $48   ;sprite 3
+  
+  ;enemy
+  .db $20, $32, $02, $40   ;sprite 0
+  .db $20, $33, $02, $48   ;sprite 1
+  .db $28, $38, $02, $40   ;sprite 2
+  .DB $28, $39, $02, $48   ;sprite 3
   
 enemyData:
 	.DB $00, $10, $00, $00, $00, $00, $00, $01, $00, $00
 	.DB $01, $20, $00, $00, $00, $00, $00, $01, $80, $00
+	.DB $00, $30, $00, $00, $00, $00, $00, $01, $90, $00
+	.DB $01, $40, $00, $00, $00, $00, $00, $01, $20, $00
+	.DB $01, $50, $00, $00, $00, $00, $00, $01, $50, $00
+	
 	
 background:
   .db $24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24  ;;row 1
