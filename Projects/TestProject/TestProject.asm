@@ -257,20 +257,13 @@ UpdateNPC:
 	LDX #$00
 	
 	NPCUpdateLoop:
-		LDA #E_enemy_Id
 		
-		CLC
-		ADC arrayIndex
-		TAY
+		JSR TickNPC
 		
-		LDA FirstEnemy, Y
-		
-		
-		;CLC
-		;ADC #$01
-		;STA FirstEnemy, Y
+		JSR UpdateEnemies
 		
 		;Do the increment dance
+		LDX arrayIndex
 		TXA
 		CLC
 		ADC #EnemyStructSize
@@ -278,10 +271,16 @@ UpdateNPC:
 		STX arrayIndex
 		CPX #EnemyStructSize * NUM_ENEMIES
 		BNE NPCUpdateLoop
+		
+		RTS
 
 TickNPC:	
 
-	LDY #E_waitFrames
+	LDA arrayIndex
+	CLC
+	ADC #E_waitFrames
+	TAY
+	
 	LDA FirstEnemy, Y
 	BEQ TickMoveFrames
 		;tick down wait frames
@@ -297,25 +296,41 @@ TickNPC:
 		;Done updating the npc
 		RTS
 	
-TickMoveFrames:
-	LDY #E_moveFrames
-	LDA FirstEnemy, Y
-	CLC
 	
+	TickMoveFrames:
+	LDA arrayIndex
+	CLC
+	ADC #E_moveFrames
+	TAY
+	
+	LDA FirstEnemy, Y
+	
+	CLC
 	ADC #$01	
 	
 	STA FirstEnemy, Y ;store value in struct after increment
 	
 	CMP #$40
 	BNE TickDone
+		
+		LDA arrayIndex
+		CLC
+		ADC #E_waitFrames
+		TAY
+		
 		; set how many frames to wait
 		LDA #$78
-		LDY #E_waitFrames
+		
 		STA FirstEnemy, Y
+		
+		LDA arrayIndex
+		CLC
+		ADC #E_moveFrames
+		TAY
 		
 		;Reset moveCOunter
 		LDA #0
-		LDY #E_moveFrames
+		
 		STA FirstEnemy, Y
 		
 		JSR ResetEnemyMovement
@@ -327,20 +342,36 @@ ResetEnemyMovement:
 	STA hDistance
 	STA vDistance
 
-  LDA #$00						; value to set on the variable we specify in the next line
-  LDY #E_moveRight		; the offset ( aka variable we want to save to )
+  LDA arrayIndex
+	CLC
+	ADC #E_moveRight
+	TAY
+	
+	LDA #$00						; value to set on the variable we specify in the next line
   STA FirstEnemy,Y		; Completing the variable set instruction using data specified above
   
-  LDA #$00						; value to set on the variable we specify in the next line
-  LDY #E_moveLeft			; the offset ( aka variable we want to save to )
+  LDA arrayIndex
+	CLC
+	ADC #E_moveLeft
+	TAY
+	
+	LDA #$00						; value to set on the variable we specify in the next line
   STA FirstEnemy,Y		; Completing the variable set instruction using data specified above
   
-  LDA #$00						; value to set on the variable we specify in the next line
-  LDY #E_moveUp			; the offset ( aka variable we want to save to )
+  LDA arrayIndex
+	CLC
+	ADC #E_moveUp
+	TAY
+	
+	LDA #$00						; value to set on the variable we specify in the next line
   STA FirstEnemy,Y		; Completing the variable set instruction using data specified above
   
-  LDA #$00						; value to set on the variable we specify in the next line
-  LDY #E_moveDown			; the offset ( aka variable we want to save to )
+  LDA arrayIndex
+	CLC
+	ADC #E_moveDown
+	TAY
+	
+	LDA #$00						; value to set on the variable we specify in the next line
   STA FirstEnemy,Y		; Completing the variable set instruction using data specified above
   
 	RTS
@@ -364,24 +395,43 @@ SetEnemyDirection:
 ;;;;;;;;;;;;;;;;;;;;;;;
 
 	BMI SetMoveRight
+		
+		LDA arrayIndex
+		CLC
+		ADC #E_moveLeft
+		TAY
+		
 		;move left
 		LDA #$01
-		LDY #E_moveLeft
+		
 		STA FirstEnemy, Y
 		JMP HorizontalMoveDone
 	SetMoveRight:
 	
+	LDA arrayIndex
+	CLC
+	ADC #E_moveRight
+	TAY
+	
 	LDA #$01
-	LDY #E_moveRight
+	
 	STA FirstEnemy, Y
 	
 	HorizontalMoveDone:
 	
-	LDX #E_spriteId
+	LDA arrayIndex
+	CLC
+	ADC #E_spriteId
+	TAX
+	
 	LDA FirstEnemy, X
 	TAX
 	
-	LDY #E_moveLeft
+	LDA arrayIndex
+	CLC
+	ADC #E_moveLeft
+	TAY
+	
 	LDA FirstEnemy, Y
 	TAY
 	
@@ -407,25 +457,43 @@ SetEnemyDirection:
 		RTS
 
 SetVerticalMovement:
+	LDA arrayIndex
+	CLC
+	ADC #E_moveRight
+	TAY
+	
 	LDA #$00						; value to set on the variable we specify in the next line
-	LDY #E_moveRight		; the offset ( aka variable we want to save to )
 	STA FirstEnemy,Y		; Completing the variable set instruction using data specified above
 	  
+	LDA arrayIndex
+	CLC
+	ADC #E_moveLeft
+	TAY
+	
 	LDA #$00						; value to set on the variable we specify in the next line
-	LDY #E_moveLeft			; the offset ( aka variable we want to save to )
 	STA FirstEnemy,Y		; Completing the variable set instruction using data specified above
 
 
 	LDA tempVal3
 	BMI SetMoveDown
+	
+	LDA arrayIndex
+	CLC
+	ADC #E_moveUp
+	TAY
+	
 	;move up
 	LDA #$01
-	LDY #E_moveUp
 	STA FirstEnemy, Y
+	
 	JMP VerticalMoveDone
 SetMoveDown:
+	LDA arrayIndex
+	CLC
+	ADC #E_moveDown
+	TAY
+	
 	LDA #$01
-	LDY #E_moveDown
 	STA FirstEnemy, Y
 VerticalMoveDone:
 	RTS
@@ -433,7 +501,11 @@ VerticalMoveDone:
 	
 ;when done A contains enemyX - playerX
 GetHorizontalValues:
-	LDY #E_spriteId
+	LDA arrayIndex
+	CLC
+	ADC #E_spriteId
+	TAY
+	
 	LDX FirstEnemy, Y
 	LDA BASE_SPR_ADDR+3, X ; enemies x value
 	STA tempVal1
@@ -449,7 +521,11 @@ GetHorizontalValues:
 	
 ;when done A contains enemyY - playerY
 GetVerticalValues:
-	LDY #E_spriteId
+	LDA arrayIndex
+	CLC
+	ADC #E_spriteId
+	TAY
+	
 	LDX FirstEnemy, Y
 	LDA BASE_SPR_ADDR, X
 	STA tempVal1
@@ -508,57 +584,108 @@ ReadADone:
 
 UpdateSprites:
 	JSR UpdateMario
-	JSR UpdateEnemies
 	RTS
 UpdateEnemies:
-	LDY #E_moveRight
+	LDA arrayIndex
+	CLC
+	ADC #E_moveRight
+	TAY
+	
 	LDA FirstEnemy,Y
 	BEQ MoveRightDone
-		LDY #E_spriteId
+		LDA arrayIndex
+		CLC
+		ADC #E_spriteId
+		TAY
+		
 		LDA FirstEnemy, Y
-		
-		LDX #E_speed
-		LDY FirstEnemy, X
-		
 		TAX
+		
+		LDA arrayIndex
+		CLC
+		ADC #E_speed
+		TAY
+		
+		LDA FirstEnemy, Y
+		TAY
+		
 		JSR Move4SpriteRight
 MoveRightDone:
-	LDY #E_moveLeft
+	LDA arrayIndex
+	CLC
+	ADC #E_moveLeft
+	TAY
+	
 	LDA FirstEnemy,Y
 	BEQ MoveLeftDone
-		LDY #E_spriteId
+		LDA arrayIndex
+		CLC
+		ADC #E_spriteId
+		TAY
+		
 		LDA FirstEnemy, Y
-		
-		LDX #E_speed
-		LDY FirstEnemy, X
-		
 		TAX
+		
+		LDA arrayIndex
+		CLC
+		ADC #E_speed
+		TAY
+		
+		LDA FirstEnemy, Y
+		TAY
+		
 		JSR Move4SpriteLeft
 MoveLeftDone:
 	
-	LDY #E_moveDown
+	LDA arrayIndex
+	CLC
+	ADC #E_moveDown
+	TAY
+	
 	LDA FirstEnemy, Y
 	BEQ MoveDownDone
-		LDY #E_spriteId
+		LDA arrayIndex
+		CLC
+		ADC #E_spriteId
+		TAY
+		
 		LDA FirstEnemy, Y
-		
-		LDX #E_speed
-		LDY FirstEnemy, X
-		
 		TAX
+		
+		LDA arrayIndex
+		CLC
+		ADC #E_speed
+		TAY
+		
+		LDA FirstEnemy, Y
+		TAY
+		
 		JSR Move4SpriteDown
 MoveDownDone:
 
-	LDY #E_moveUp
+	LDA arrayIndex
+	CLC
+	ADC #E_moveUp
+	TAY
+	
 	LDA FirstEnemy, Y
 	BEQ MoveUpDone
-		LDY #E_spriteId
+		LDA arrayIndex
+		CLC
+		ADC #E_spriteId
+		TAY
+		
 		LDA FirstEnemy, Y
-		
-		LDX #E_speed
-		LDY FirstEnemy, X
-		
 		TAX
+		
+		LDA arrayIndex
+		CLC
+		ADC #E_speed
+		TAY
+		
+		LDA FirstEnemy, Y
+		TAY
+
 		JSR Move4SpriteUp
 MoveUpDone:
 	RTS
@@ -789,10 +916,10 @@ sprites:
   .DB $18, $39, $01, $28   ;sprite 3
   
   ;enemy
-  .db $80, $32, $01, $20   ;sprite 0
-  .db $80, $33, $01, $28   ;sprite 1
-  .db $88, $38, $01, $20   ;sprite 2
-  .DB $88, $39, $01, $28   ;sprite 3
+  .db $80, $32, $01, $80   ;sprite 0
+  .db $80, $33, $01, $88   ;sprite 1
+  .db $88, $38, $01, $80   ;sprite 2
+  .DB $88, $39, $01, $88   ;sprite 3
   
 enemyData:
 	.DB $00, $10, $00, $00, $00, $00, $00, $01, $00, $00
