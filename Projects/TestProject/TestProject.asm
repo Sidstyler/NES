@@ -29,22 +29,29 @@ buttons2						.RS 1 ; player 2 gamepad buttons
 marioSprite					.RS 1 ; marios start adress
 marioCurrentSpeed		.RS 1 ; marios current move speed
 
-tempVal1							.RS 1 ; variable used in stuff
-tempVal2							.RS 1 ; variable used in stuff´
-tempVal3							.RS 1 ; variable used in stuff´
+
 hDistance						.RS 1
 vDistance						.RS 1
 
 FrameCounter					.RS 1
 
-FirstEnemy						.RS EnemyStructSize
+arrayIndex					.RS 1
 
-EnemyList						
+tempVal1							.RS 1 ; variable used in stuff
+tempVal2							.RS 1 ; variable used in stuff´
+tempVal3							.RS 1 ; variable used in stuff´
+
+FirstEnemy						.RS EnemyStructSize * 10
+
+currentEnemy				.RS EnemyStructSize
+		
 
 BASE_SPR_ADDR		= $0200
 
 MARIO_RUN_SPEED	= $03
 MARIO_WALK_SPEED	= $02
+
+NUM_ENEMIES	= $02
 
 AddrLow:  .rs 1
 AddrHigh:  .rs 1
@@ -181,14 +188,14 @@ LoadAttributeLoop:
   LDA #%00011110   ; enable sprites, enable background, no clipping on left side
   STA $2001
   
-  setupEnemies:
+  setupEnemies:  
 	LDX #$00
 	setupEnemiesLoop:
 		LDA enemyData, X
 		STA FirstEnemy,X
 		
 		INX
-		CPX $A
+		CPX $14
 		BNE setupEnemiesLoop
   
 
@@ -243,7 +250,37 @@ ResetCounter:
 FrameCounterDone:
 	RTS
 
-UpdateNPC:
+UpdateNPC: 
+	
+	LDX #$00
+	STX arrayIndex
+	LDX #$00
+	
+	NPCUpdateLoop:
+		LDA #E_enemy_Id
+		
+		CLC
+		ADC arrayIndex
+		TAY
+		
+		LDA FirstEnemy, Y
+		
+		
+		;CLC
+		;ADC #$01
+		;STA FirstEnemy, Y
+		
+		;Do the increment dance
+		TXA
+		CLC
+		ADC #EnemyStructSize
+		TAX	
+		STX arrayIndex
+		CPX #EnemyStructSize * NUM_ENEMIES
+		BNE NPCUpdateLoop
+
+TickNPC:	
+
 	LDY #E_waitFrames
 	LDA FirstEnemy, Y
 	BEQ TickMoveFrames
