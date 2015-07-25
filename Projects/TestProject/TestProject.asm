@@ -3,6 +3,12 @@
   .inesmap 0   ; mapper 0 = NROM, no bank swapping
   .inesmir 1   ; background mirroring
   
+  
+;MOVE_DIR
+;0 = Up
+;1 = Right
+;2 = Down
+;3 = Left
 
 ;; Enemy struct
 	.rsset $0000
@@ -28,6 +34,9 @@ buttons2						.RS 1 ; player 2 gamepad buttons
 
 marioSprite					.RS 1 ; marios start adress
 marioCurrentSpeed		.RS 1 ; marios current move speed
+marioIsMoving				.RS 1 ; boolean to keep track if mario is moving
+currentMoveAnimFrame .RS 1 ; 
+mirrorMario					.RS 1
 
 
 hDistance						.RS 1
@@ -43,7 +52,6 @@ tempVal3							.RS 1 ; variable used in stuff´
 
 FirstEnemy						.RS EnemyStructSize * 10
 
-currentEnemy				.RS EnemyStructSize
 		
 
 BASE_SPR_ADDR		= $0200
@@ -195,7 +203,7 @@ LoadAttributeLoop:
 		STA FirstEnemy,X
 		
 		INX
-		CPX $14
+		CPX $32
 		BNE setupEnemiesLoop
   
 
@@ -232,10 +240,26 @@ NMI:
 	
   JSR SetMoveSpeed
 	
-  JSR UpdateSprites  ;;set ball/paddle sprites from positions
-	
+  JSR UpdateMario  ;;Reads controller and moves mario if needed
+  
+  JSR UpdateMarioAnimation
+  
+  
+	JSR showCPUUsageBar
 	
 	RTI             ; return from interrupt
+	
+
+showCPUUsageBar:
+  ldx #%00011111  ; sprites + background + monochrome (i.e. WHITE)
+  stx $2001
+  ldy #21  ; add about 23 for each additional line (leave it on WHITE for one scan line)
+.loop
+    dey
+    bne .loop
+  dex    ; sprites + background + NO monochrome  (i.e. #%00011110)
+  stx $2001
+  rts
 	
 
 UpdateFrameCounter:
@@ -582,9 +606,6 @@ SetMoveSpeed:
 ReadADone:
 	RTS
 
-UpdateSprites:
-	JSR UpdateMario
-	RTS
 UpdateEnemies:
 	LDA arrayIndex
 	CLC
@@ -692,6 +713,9 @@ MoveUpDone:
 
 UpdateMario:
 
+	LDX #$00
+	STX marioIsMoving ; reset marios moving variable
+
 	LDA buttons1
 	AND #%00001000
 	BEQ ReadUpDone
@@ -713,12 +737,17 @@ ReadDownDone:
 	LDA buttons1
 	AND #%00000010
 	BEQ ReadLeftDone
+		LDX #$01
+		STX marioIsMoving
+		
 		LDX marioSprite
 		LDY #$01
+		STY mirrorMario
 		JSR MirrorSprite
 		
 		LDX marioSprite
 		LDY marioCurrentSpeed
+		
 	
 		JSR Move4SpriteLeft
 	ReadLeftDone:
@@ -726,14 +755,114 @@ ReadDownDone:
 	LDA buttons1
 	AND #%00000001
 	BEQ ReadRightDone
+		LDX #$01
+		STX marioIsMoving
+		
 		LDX marioSprite
 		LDY #$00
+		STY mirrorMario
 		JSR MirrorSprite
 		
 		LDY marioCurrentSpeed
 	
 		JSR Move4SpriteRight
 ReadRightDone:
+	RTS
+	
+; A mod B
+; tempVal1 = A
+; tempVal2 = B
+; result = Register A
+Mod:
+		LDA tempVal1  ; memory addr A
+		SEC
+Modulus:	
+		SBC tempVal2 ; memory addr B
+		BCS Modulus
+		ADC tempVal2
+	RTS
+	
+UpdateMarioAnimation:
+
+	LDA marioIsMoving
+	BEQ NoAnimUpdate
+
+	LDX FrameCounter 
+	STX tempVal1
+	
+	LDX #$08
+	STX tempVal2
+	
+	JSR Mod
+	
+	BNE NoAnimUpdate
+		LDX #$00
+	
+		LDA currentMoveAnimFrame
+		CMP #$00
+			BEQ DoRunAnimation
+		CMP #$01
+			BNE SetFrame2
+		CMP #$02
+			BNE SetFrame3
+		
+
+	SetFrame2: 
+		LDX #$04
+		JMP DoRunAnimation
+		
+	SetFrame3:
+		LDX #$08
+		JMP DoRunAnimation
+		
+ 	DoRunAnimation:
+ 		
+ 		;LDX marioSprite
+		;LDY #$00
+		;JSR MirrorSprite	
+ 		
+		LDA runAnimation,X
+		STA BASE_SPR_ADDR+1
+		LDA #$00
+		STA BASE_SPR_ADDR+2
+		INX
+		
+		LDA runAnimation,X
+		STA BASE_SPR_ADDR+5
+		LDA #$00
+		STA BASE_SPR_ADDR+6
+		INX
+		
+		LDA runAnimation,X
+		STA BASE_SPR_ADDR+9
+		LDA #$00
+		STA BASE_SPR_ADDR+10
+		INX
+		
+		LDA runAnimation,X
+		STA BASE_SPR_ADDR+13
+		LDA #$00
+		STA BASE_SPR_ADDR+14
+		INX
+		
+		LDX marioSprite
+		LDY mirrorMario
+		JSR MirrorSprite	
+	
+		LDX currentMoveAnimFrame
+		INX
+		STX currentMoveAnimFrame
+		
+		CPX #$03
+		BEQ ResetMoveAnimCounter
+			JMP AnimDone
+		
+		ResetMoveAnimCounter:
+			LDX #$00
+		  STX currentMoveAnimFrame
+			
+	AnimDone:
+	NoAnimUpdate:
 	RTS
 	
 ;; X - Sprite number
@@ -904,40 +1033,45 @@ sprites:
      ;vert tile attr horiz
   
   ;Mario
-  .db $80, $32, $00, $80   ;sprite 0
-  .db $80, $33, $00, $88   ;sprite 1
-  .db $88, $34, $00, $80   ;sprite 2
-  .DB $88, $35, $00, $88   ;sprite 3
+  .db $80, $3A, $00, $80   ;sprite 0 head tile idle
+  .db $80, $37, $00, $88   ;sprite 1 head tile idle
+  .db $88, $4f, $00, $80   ;sprite 2 foot idle
+  .DB $88, $50, $00, $88   ;sprite 3 foot idle
   
   ;enemy
-  .db $10, $32, $01, $20   ;sprite 0
-  .db $10, $33, $01, $28   ;sprite 1
-  .db $18, $38, $01, $20   ;sprite 2
-  .DB $18, $39, $01, $28   ;sprite 3
+  .db $10, $36, $01, $20   ;sprite 0 head tile big step
+  .db $10, $37, $01, $28   ;sprite 1 head tile big step
+  .db $18, $38, $01, $20   ;sprite 2 foot tile big step
+  .DB $18, $39, $01, $28   ;sprite 3 foot tile big step
   
   ;enemy
-  .db $30, $32, $01, $90   ;sprite 0
-  .db $30, $33, $01, $98   ;sprite 1
-  .db $38, $38, $01, $90   ;sprite 2
-  .DB $38, $39, $01, $98   ;sprite 3
+  .db $30, $3A, $01, $90   ;sprite 0 head tile feet together
+  .db $30, $37, $01, $98   ;sprite 1 head tile feet together
+  .db $38, $3B, $01, $90   ;sprite 2 foot together
+  .DB $38, $3C, $01, $98   ;sprite 3 foot together
   
   ;enemy
-  .db $40, $32, $01, $80   ;sprite 0
-  .db $40, $33, $01, $88   ;sprite 1
-  .db $48, $38, $01, $80   ;sprite 2
-  .DB $48, $39, $01, $88   ;sprite 3
+  .db $40, $32, $01, $80   ;sprite 0 head tile small step
+  .db $40, $33, $01, $88   ;sprite 1 head tile big step
+  .db $48, $34, $01, $80   ;sprite 2 foot small step
+  .DB $48, $35, $01, $88   ;sprite 3 foot small step
   
   ;enemy
-  .db $80, $32, $03, $40   ;sprite 0
-  .db $80, $33, $03, $48   ;sprite 1
+  .db $80, $36, $03, $40   ;sprite 0
+  .db $80, $37, $03, $48   ;sprite 1
   .db $88, $38, $03, $40   ;sprite 2
   .DB $88, $39, $03, $48   ;sprite 3
   
   ;enemy
-  .db $20, $32, $02, $40   ;sprite 0
-  .db $20, $33, $02, $48   ;sprite 1
+  .db $20, $36, $02, $40   ;sprite 0
+  .db $20, $37, $02, $48   ;sprite 1
   .db $28, $38, $02, $40   ;sprite 2
   .DB $28, $39, $02, $48   ;sprite 3
+  
+runAnimation:
+	.DB $3A, $37, $3B, $3C ; sprite feet together
+	.DB $32, $33, $34, $35 ; sprite small step
+	.db $36, $37, $38, $39 ; sprite big
   
 enemyData:
 	.DB $00, $10, $00, $00, $00, $00, $00, $01, $00, $00
