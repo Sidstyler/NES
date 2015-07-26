@@ -3,16 +3,8 @@
   .inesmap 0   ; mapper 0 = NROM, no bank swapping
   .inesmir 1   ; background mirroring
   
-  
-;MOVE_DIR
-;0 = Up
-;1 = Right
-;2 = Down
-;3 = Left
-
 ;; Enemy struct
 	.rsset $0000
-E_enemy_Id			.RS 1
 E_spriteId			.RS 1
 E_moveRight			.RS 1
 E_moveLeft			.RS 1
@@ -203,7 +195,7 @@ LoadAttributeLoop:
 		STA FirstEnemy,X
 		
 		INX
-		CPX $32
+		CPX $09 * NUM_ENEMIES
 		BNE setupEnemiesLoop
   
 
@@ -242,8 +234,13 @@ NMI:
 	
   JSR UpdateMario  ;;Reads controller and moves mario if needed
   
-  JSR UpdateMarioAnimation
-  
+  LDA marioIsMoving
+	BEQ PlayMarioIdle
+  	JSR UpdateMarioAnimation
+  	JMP MarioAnimDone
+  PlayMarioIdle:
+  	JSR PlayIdle
+  MarioAnimDone:
   
 	JSR showCPUUsageBar
 	
@@ -781,26 +778,22 @@ Modulus:
 		BCS Modulus
 		ADC tempVal2
 	RTS
-	
+
 UpdateMarioAnimation:
-
-	LDA marioIsMoving
-	BEQ NoAnimUpdate
-
-	LDX FrameCounter 
-	STX tempVal1
+	LDX FrameCounter 		;
+	STX tempVal1				;
 	
-	LDX #$08
-	STX tempVal2
+	LDX #$08						; only update every 8th frame
+	STX tempVal2				;
 	
-	JSR Mod
+	JSR Mod							;
 	
-	BNE NoAnimUpdate
+	BNE AnimDone				; if the FrameCOunter % 8 is not zero we do not update
 		LDX #$00
 	
-		LDA currentMoveAnimFrame
+		LDA currentMoveAnimFrame ; choose frame in animation to play
 		CMP #$00
-			BEQ DoRunAnimation
+			BEQ DoRunAnimation 
 		CMP #$01
 			BNE SetFrame2
 		CMP #$02
@@ -816,33 +809,28 @@ UpdateMarioAnimation:
 		JMP DoRunAnimation
 		
  	DoRunAnimation:
- 		
- 		;LDX marioSprite
-		;LDY #$00
-		;JSR MirrorSprite	
- 		
+ 	
+ 		JSR RemoveMirrorBit
+ 
 		LDA runAnimation,X
 		STA BASE_SPR_ADDR+1
-		LDA #$00
-		STA BASE_SPR_ADDR+2
+
+		STY BASE_SPR_ADDR+2
 		INX
 		
 		LDA runAnimation,X
 		STA BASE_SPR_ADDR+5
-		LDA #$00
-		STA BASE_SPR_ADDR+6
+		STY BASE_SPR_ADDR+6
 		INX
 		
 		LDA runAnimation,X
 		STA BASE_SPR_ADDR+9
-		LDA #$00
-		STA BASE_SPR_ADDR+10
+		STY BASE_SPR_ADDR+10
 		INX
 		
 		LDA runAnimation,X
 		STA BASE_SPR_ADDR+13
-		LDA #$00
-		STA BASE_SPR_ADDR+14
+		STY BASE_SPR_ADDR+14
 		INX
 		
 		LDX marioSprite
@@ -853,16 +841,65 @@ UpdateMarioAnimation:
 		INX
 		STX currentMoveAnimFrame
 		
-		CPX #$03
-		BEQ ResetMoveAnimCounter
+		CPX #$03									; CPX takes X - var
+		BEQ ResetMoveAnimCounter  
 			JMP AnimDone
 		
 		ResetMoveAnimCounter:
 			LDX #$00
 		  STX currentMoveAnimFrame
-			
+		  JMP AnimDone
 	AnimDone:
-	NoAnimUpdate:
+	RTS
+	
+PlayIdle:
+	JSR RemoveMirrorBit
+
+	LDX #$00
+	
+	LDA idleAnimation,X
+	STA BASE_SPR_ADDR+1
+	STY BASE_SPR_ADDR+2
+	INX
+	
+	LDA idleAnimation,X
+	STA BASE_SPR_ADDR+5
+	STY BASE_SPR_ADDR+6
+	INX
+	
+	LDA idleAnimation,X
+	STA BASE_SPR_ADDR+9
+	STY BASE_SPR_ADDR+10
+	INX
+	
+	LDA idleAnimation,X
+	STA BASE_SPR_ADDR+13
+	STY BASE_SPR_ADDR+14
+	INX
+	
+	LDX marioSprite
+	LDY mirrorMario
+	JSR MirrorSprite	
+	
+	RTS
+	
+; returns new atribute in Y register
+RemoveMirrorBit:
+	LDA BASE_SPR_ADDR+2
+	AND #%01000000
+	
+	BEQ NoRemove64
+		SEC
+		SBC #$40
+	
+	NoRemove64:
+	
+	AND #%10000000
+	BEQ NoRemove128
+		SEC
+		SBC #$80	
+	NoRemove128:
+	TAY
 	RTS
 	
 ;; X - Sprite number
@@ -1073,12 +1110,15 @@ runAnimation:
 	.DB $32, $33, $34, $35 ; sprite small step
 	.db $36, $37, $38, $39 ; sprite big
   
+idleAnimation:
+	.db $3A, $37, $4F, $50 
+
 enemyData:
-	.DB $00, $10, $00, $00, $00, $00, $00, $01, $00, $00
-	.DB $01, $20, $00, $00, $00, $00, $00, $01, $80, $00
-	.DB $00, $30, $00, $00, $00, $00, $00, $01, $90, $00
-	.DB $01, $40, $00, $00, $00, $00, $00, $01, $20, $00
-	.DB $01, $50, $00, $00, $00, $00, $00, $01, $50, $00
+	.DB $10, $00, $00, $00, $00, $00, $01, $00, $00
+	.DB $20, $00, $00, $00, $00, $00, $01, $80, $00
+	.DB $30, $00, $00, $00, $00, $00, $01, $90, $00
+	.DB $40, $00, $00, $00, $00, $00, $01, $20, $00
+	.DB $50, $00, $00, $00, $00, $00, $01, $50, $00
 	
 	
 background:
