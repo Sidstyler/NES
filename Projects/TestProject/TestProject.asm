@@ -5,16 +5,22 @@
   
 ;; Enemy struct
 	.rsset $0000
-E_spriteId			.RS 1
-E_moveRight			.RS 1
-E_moveLeft			.RS 1
-E_moveUp			.RS 1
-E_moveDown			.RS 1
-E_health			.RS 1
-E_speed				.RS 1
-E_moveFrames  .RS 1
-E_waitFrames  .RS 1
-EnemyStructSize	.RS 1
+E_spriteId					.RS 1
+E_moveRight					.RS 1
+E_moveLeft					.RS 1
+E_moveUp						.RS 1
+E_moveDown					.RS 1
+E_health						.RS 1
+E_speed							.RS 1
+E_moveFrames  			.RS 1
+E_waitFrames  			.RS 1
+E_hMove							.RS 1
+E_vMove							.RS 1
+E_currentAnimFrame 	.RS 1
+EnemyStructSize			.RS 1
+
+;hMove || 0 = none || 1 = left ||  2 = right
+;vMove || 0 = none || 1 = up || 2 = down
 
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -23,13 +29,6 @@ EnemyStructSize	.RS 1
 	.rsset $0000 ;start variables at RAM location 0
 buttons1						.RS 1 ; player 1 gamepad buttons
 buttons2						.RS 1 ; player 2 gamepad buttons
-
-marioSprite					.RS 1 ; marios start adress
-marioCurrentSpeed		.RS 1 ; marios current move speed
-marioIsMoving				.RS 1 ; boolean to keep track if mario is moving
-currentMoveAnimFrame .RS 1 ; 
-mirrorMario					.RS 1
-
 
 hDistance						.RS 1
 vDistance						.RS 1
@@ -42,16 +41,14 @@ tempVal1							.RS 1 ; variable used in stuff
 tempVal2							.RS 1 ; variable used in stuff´
 tempVal3							.RS 1 ; variable used in stuff´
 
-FirstEnemy						.RS EnemyStructSize * 10
-
-		
+EnemyList						.RS EnemyStructSize * 10	
 
 BASE_SPR_ADDR		= $0200
 
 MARIO_RUN_SPEED	= $03
 MARIO_WALK_SPEED	= $02
 
-NUM_ENEMIES	= $05
+NUM_ENEMIES	= $06
 
 AddrLow:  .rs 1
 AddrHigh:  .rs 1
@@ -127,7 +124,7 @@ LoadSpritesLoop:
   LDA sprites, x        ; load data from address (sprites +  x)
   STA $0200, x          ; store into RAM address ($0200 + x)
   INX                   ; X = X + 1
-  CPX #$10 * ( NUM_ENEMIES + 1 )           ; Compare X to hex $10, decimal 32
+  CPX #$10 * ( NUM_ENEMIES  )           ; Compare X to hex $10, decimal 32
   BNE LoadSpritesLoop   ; Branch to LoadSpritesLoop if compare was Not Equal to zero
                         ; if compare was equal to 32, keep going down
               
@@ -175,13 +172,7 @@ LoadAttributeLoop:
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;SET initial stats here 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-  LDA $00
-  STA marioSprite
-	
-  LDA #MARIO_WALK_SPEED
-  STA marioCurrentSpeed
-              
-              
+
   LDA #%10010000   ; enable NMI, sprites from Pattern Table 0, background from Pattern Table 1
   STA $2000
 
@@ -192,10 +183,10 @@ LoadAttributeLoop:
 	LDX #$00
 	setupEnemiesLoop:
 		LDA enemyData, X
-		STA FirstEnemy,X
+		STA EnemyList,X
 		
 		INX
-		CPX $09 * NUM_ENEMIES
+		CPX #EnemyStructSize * NUM_ENEMIES
 		BNE setupEnemiesLoop
   
 
@@ -234,7 +225,8 @@ NMI:
 	
   JSR UpdateMario  ;;Reads controller and moves mario if needed
   
-  LDA marioIsMoving
+  LDY #E_hMove
+  LDA EnemyList, Y
 	BEQ PlayMarioIdle
   	JSR UpdateMarioAnimation
   	JMP MarioAnimDone
@@ -273,9 +265,8 @@ FrameCounterDone:
 
 UpdateNPC: 
 	
-	LDX #$00
+	LDX #EnemyStructSize ;the first one is mario so we skip one index
 	STX arrayIndex
-	LDX #$00
 	
 	NPCUpdateLoop:
 		
@@ -302,12 +293,12 @@ TickNPC:
 	ADC #E_waitFrames
 	TAY
 	
-	LDA FirstEnemy, Y
+	LDA EnemyList, Y
 	BEQ TickMoveFrames
 		;tick down wait frames
 		SEC
 		SBC #$01
-		STA FirstEnemy, Y
+		STA EnemyList, Y
 		
 		BNE NoUpdate
 			JSR SetEnemyDirection
@@ -324,12 +315,12 @@ TickNPC:
 	ADC #E_moveFrames
 	TAY
 	
-	LDA FirstEnemy, Y
+	LDA EnemyList, Y
 	
 	CLC
 	ADC #$01	
 	
-	STA FirstEnemy, Y ;store value in struct after increment
+	STA EnemyList, Y ;store value in struct after increment
 	
 	CMP #$40
 	BNE TickDone
@@ -342,7 +333,7 @@ TickNPC:
 		; set how many frames to wait
 		LDA #$78
 		
-		STA FirstEnemy, Y
+		STA EnemyList, Y
 		
 		LDA arrayIndex
 		CLC
@@ -352,7 +343,7 @@ TickNPC:
 		;Reset moveCOunter
 		LDA #0
 		
-		STA FirstEnemy, Y
+		STA EnemyList, Y
 		
 		JSR ResetEnemyMovement
 TickDone:	
@@ -369,7 +360,7 @@ ResetEnemyMovement:
 	TAY
 	
 	LDA #$00						; value to set on the variable we specify in the next line
-  STA FirstEnemy,Y		; Completing the variable set instruction using data specified above
+  STA EnemyList,Y		; Completing the variable set instruction using data specified above
   
   LDA arrayIndex
 	CLC
@@ -377,7 +368,7 @@ ResetEnemyMovement:
 	TAY
 	
 	LDA #$00						; value to set on the variable we specify in the next line
-  STA FirstEnemy,Y		; Completing the variable set instruction using data specified above
+  STA EnemyList,Y		; Completing the variable set instruction using data specified above
   
   LDA arrayIndex
 	CLC
@@ -385,7 +376,7 @@ ResetEnemyMovement:
 	TAY
 	
 	LDA #$00						; value to set on the variable we specify in the next line
-  STA FirstEnemy,Y		; Completing the variable set instruction using data specified above
+  STA EnemyList,Y		; Completing the variable set instruction using data specified above
   
   LDA arrayIndex
 	CLC
@@ -393,7 +384,7 @@ ResetEnemyMovement:
 	TAY
 	
 	LDA #$00						; value to set on the variable we specify in the next line
-  STA FirstEnemy,Y		; Completing the variable set instruction using data specified above
+  STA EnemyList,Y		; Completing the variable set instruction using data specified above
   
 	RTS
 	
@@ -425,7 +416,7 @@ SetEnemyDirection:
 		;move left
 		LDA #$01
 		
-		STA FirstEnemy, Y
+		STA EnemyList, Y
 		JMP HorizontalMoveDone
 	SetMoveRight:
 	
@@ -436,7 +427,7 @@ SetEnemyDirection:
 	
 	LDA #$01
 	
-	STA FirstEnemy, Y
+	STA EnemyList, Y
 	
 	HorizontalMoveDone:
 	
@@ -445,7 +436,7 @@ SetEnemyDirection:
 	ADC #E_spriteId
 	TAX
 	
-	LDA FirstEnemy, X
+	LDA EnemyList, X
 	TAX
 	
 	LDA arrayIndex
@@ -453,7 +444,7 @@ SetEnemyDirection:
 	ADC #E_moveLeft
 	TAY
 	
-	LDA FirstEnemy, Y
+	LDA EnemyList, Y
 	TAY
 	
 	JSR MirrorSprite
@@ -484,7 +475,7 @@ SetVerticalMovement:
 	TAY
 	
 	LDA #$00						; value to set on the variable we specify in the next line
-	STA FirstEnemy,Y		; Completing the variable set instruction using data specified above
+	STA EnemyList,Y		; Completing the variable set instruction using data specified above
 	  
 	LDA arrayIndex
 	CLC
@@ -492,7 +483,7 @@ SetVerticalMovement:
 	TAY
 	
 	LDA #$00						; value to set on the variable we specify in the next line
-	STA FirstEnemy,Y		; Completing the variable set instruction using data specified above
+	STA EnemyList,Y		; Completing the variable set instruction using data specified above
 
 
 	LDA tempVal3
@@ -505,7 +496,7 @@ SetVerticalMovement:
 	
 	;move up
 	LDA #$01
-	STA FirstEnemy, Y
+	STA EnemyList, Y
 	
 	JMP VerticalMoveDone
 SetMoveDown:
@@ -515,7 +506,7 @@ SetMoveDown:
 	TAY
 	
 	LDA #$01
-	STA FirstEnemy, Y
+	STA EnemyList, Y
 VerticalMoveDone:
 	RTS
 	
@@ -527,7 +518,7 @@ GetHorizontalValues:
 	ADC #E_spriteId
 	TAY
 	
-	LDX FirstEnemy, Y
+	LDX EnemyList, Y
 	LDA BASE_SPR_ADDR+3, X ; enemies x value
 	STA tempVal1
 	LDA BASE_SPR_ADDR+3 ;the players X value
@@ -547,7 +538,7 @@ GetVerticalValues:
 	ADC #E_spriteId
 	TAY
 	
-	LDX FirstEnemy, Y
+	LDX EnemyList, Y
 	LDA BASE_SPR_ADDR, X
 	STA tempVal1
 	LDA BASE_SPR_ADDR
@@ -591,7 +582,11 @@ ReadController2Loop:
 	
 SetMoveSpeed:
 	LDA #MARIO_WALK_SPEED
-	STA marioCurrentSpeed
+	
+	LDY #E_speed
+	STA EnemyList, Y
+	
+;	STA marioCurrentSpeed
 	
 	LDA buttons1
 	AND #%10000000
@@ -599,7 +594,11 @@ SetMoveSpeed:
 	BEQ ReadADone
 	
 	LDA #MARIO_RUN_SPEED
-	STA marioCurrentSpeed
+	
+	LDY #E_speed
+	STA EnemyList, Y
+	
+	;STA marioCurrentSpeed
 ReadADone:
 	RTS
 
@@ -609,14 +608,14 @@ UpdateEnemies:
 	ADC #E_moveRight
 	TAY
 	
-	LDA FirstEnemy,Y
+	LDA EnemyList,Y
 	BEQ MoveRightDone
 		LDA arrayIndex
 		CLC
 		ADC #E_spriteId
 		TAY
 		
-		LDA FirstEnemy, Y
+		LDA EnemyList, Y
 		TAX
 		
 		LDA arrayIndex
@@ -624,7 +623,7 @@ UpdateEnemies:
 		ADC #E_speed
 		TAY
 		
-		LDA FirstEnemy, Y
+		LDA EnemyList, Y
 		TAY
 		
 		JSR Move4SpriteRight
@@ -634,14 +633,14 @@ MoveRightDone:
 	ADC #E_moveLeft
 	TAY
 	
-	LDA FirstEnemy,Y
+	LDA EnemyList,Y
 	BEQ MoveLeftDone
 		LDA arrayIndex
 		CLC
 		ADC #E_spriteId
 		TAY
 		
-		LDA FirstEnemy, Y
+		LDA EnemyList, Y
 		TAX
 		
 		LDA arrayIndex
@@ -649,7 +648,7 @@ MoveRightDone:
 		ADC #E_speed
 		TAY
 		
-		LDA FirstEnemy, Y
+		LDA EnemyList, Y
 		TAY
 		
 		JSR Move4SpriteLeft
@@ -660,14 +659,14 @@ MoveLeftDone:
 	ADC #E_moveDown
 	TAY
 	
-	LDA FirstEnemy, Y
+	LDA EnemyList, Y
 	BEQ MoveDownDone
 		LDA arrayIndex
 		CLC
 		ADC #E_spriteId
 		TAY
 		
-		LDA FirstEnemy, Y
+		LDA EnemyList, Y
 		TAX
 		
 		LDA arrayIndex
@@ -675,7 +674,7 @@ MoveLeftDone:
 		ADC #E_speed
 		TAY
 		
-		LDA FirstEnemy, Y
+		LDA EnemyList, Y
 		TAY
 		
 		JSR Move4SpriteDown
@@ -686,14 +685,14 @@ MoveDownDone:
 	ADC #E_moveUp
 	TAY
 	
-	LDA FirstEnemy, Y
+	LDA EnemyList, Y
 	BEQ MoveUpDone
 		LDA arrayIndex
 		CLC
 		ADC #E_spriteId
 		TAY
 		
-		LDA FirstEnemy, Y
+		LDA EnemyList, Y
 		TAX
 		
 		LDA arrayIndex
@@ -701,7 +700,7 @@ MoveDownDone:
 		ADC #E_speed
 		TAY
 		
-		LDA FirstEnemy, Y
+		LDA EnemyList, Y
 		TAY
 
 		JSR Move4SpriteUp
@@ -709,16 +708,22 @@ MoveUpDone:
 	RTS
 
 UpdateMario:
-
-	LDX #$00
-	STX marioIsMoving ; reset marios moving variable
+	LDA #$00
+	LDY #E_hMove
+	STA EnemyList, Y ; reset marios moving variable
 
 	LDA buttons1
 	AND #%00001000
 	BEQ ReadUpDone
 	
-	LDX marioSprite
-	LDY marioCurrentSpeed
+	LDY #E_spriteId
+	LDA EnemyList, Y
+	TAX
+	
+	LDY #E_speed
+	LDA EnemyList, Y
+	TAY
+
 	JSR Move4SpriteUp
 ReadUpDone:
 	
@@ -726,24 +731,40 @@ ReadUpDone:
 	AND #%00000100
 	BEQ ReadDownDone
 	
-	LDX marioSprite
-	LDY marioCurrentSpeed
+	LDY #E_spriteId
+	LDA EnemyList, Y
+	TAX
+	
+	LDY #E_speed
+	LDA EnemyList, Y
+	TAY
+
 	JSR Move4SpriteDown
 ReadDownDone:
 
 	LDA buttons1
 	AND #%00000010
 	BEQ ReadLeftDone
-		LDX #$01
-		STX marioIsMoving
+		LDA #$01
+		LDY #E_hMove
+		STA EnemyList, Y
 		
-		LDX marioSprite
+		LDY #E_spriteId
+		LDA EnemyList, Y
+		TAX
+		
 		LDY #$01
-		STY mirrorMario
+		
 		JSR MirrorSprite
 		
-		LDX marioSprite
-		LDY marioCurrentSpeed
+		LDY #E_spriteId
+		LDA EnemyList, Y
+		TAX
+		
+		LDY #E_speed
+		LDA EnemyList, Y
+		TAY
+
 		
 	
 		JSR Move4SpriteLeft
@@ -752,15 +773,25 @@ ReadDownDone:
 	LDA buttons1
 	AND #%00000001
 	BEQ ReadRightDone
-		LDX #$01
-		STX marioIsMoving
+		LDA #$02
+		LDY #E_hMove
+		STA EnemyList, Y
 		
-		LDX marioSprite
+		LDY #E_spriteId
+		LDA EnemyList, Y
+		TAX
 		LDY #$00
-		STY mirrorMario
+		
 		JSR MirrorSprite
 		
-		LDY marioCurrentSpeed
+		LDY #E_spriteId
+		LDA EnemyList, Y
+		TAX
+		
+		LDY #E_speed
+		LDA EnemyList, Y
+		TAY
+
 	
 		JSR Move4SpriteRight
 ReadRightDone:
@@ -791,7 +822,8 @@ UpdateMarioAnimation:
 	BNE AnimDone				; if the FrameCOunter % 8 is not zero we do not update
 		LDX #$00
 	
-		LDA currentMoveAnimFrame ; choose frame in animation to play
+		LDY #E_currentAnimFrame
+		LDA EnemyList, Y
 		CMP #$00
 			BEQ DoRunAnimation 
 		CMP #$01
@@ -833,21 +865,37 @@ UpdateMarioAnimation:
 		STY BASE_SPR_ADDR+14
 		INX
 		
-		LDX marioSprite
-		LDY mirrorMario
-		JSR MirrorSprite	
-	
-		LDX currentMoveAnimFrame
-		INX
-		STX currentMoveAnimFrame
+		LDY #E_spriteId
+		LDA EnemyList, Y
+		TAX
 		
-		CPX #$03									; CPX takes X - var
+		LDY #E_hMove
+		LDA EnemyList, Y
+		
+		LDY #$00
+		
+		SEC
+		SBC #$01
+		
+		BNE NoMirror
+			LDY #$01
+		NoMirror:
+		
+		JSR MirrorSprite	
+		
+		LDY #E_currentAnimFrame
+		LDA EnemyList, Y
+		CLC
+		ADC #$01
+		STA EnemyList, Y
+		
+		CMP #$03									; CMP takes X - var
 		BEQ ResetMoveAnimCounter  
 			JMP AnimDone
 		
 		ResetMoveAnimCounter:
-			LDX #$00
-		  STX currentMoveAnimFrame
+			LDA #$00
+		  STA EnemyList, Y
 		  JMP AnimDone
 	AnimDone:
 	RTS
@@ -877,8 +925,22 @@ PlayIdle:
 	STY BASE_SPR_ADDR+14
 	INX
 	
-	LDX marioSprite
-	LDY mirrorMario
+	LDY #E_spriteId
+	LDA EnemyList, Y
+	TAX
+	
+	LDY #E_hMove
+	LDA EnemyList, Y
+	
+	LDY #$00
+	
+	SEC
+	SBC #$01
+	
+	BNE NoMirrorIdle
+		LDY #$01
+	NoMirrorIdle:
+	
 	JSR MirrorSprite	
 	
 	RTS
@@ -1114,11 +1176,12 @@ idleAnimation:
 	.db $3A, $37, $4F, $50 
 
 enemyData:
-	.DB $10, $00, $00, $00, $00, $00, $01, $00, $00
-	.DB $20, $00, $00, $00, $00, $00, $01, $80, $00
-	.DB $30, $00, $00, $00, $00, $00, $01, $90, $00
-	.DB $40, $00, $00, $00, $00, $00, $01, $20, $00
-	.DB $50, $00, $00, $00, $00, $00, $01, $50, $00
+	.DB $00, $00, $00, $00, $00, $00, $02, $00, $00, $00, $00, $00
+	.DB $10, $00, $00, $00, $00, $00, $01, $00, $00, $00, $00, $00
+	.DB $20, $00, $00, $00, $00, $00, $01, $80, $00, $00, $00, $00
+	.DB $30, $00, $00, $00, $00, $00, $01, $90, $00, $00, $00, $00
+	.DB $40, $00, $00, $00, $00, $00, $01, $20, $00, $00, $00, $00
+	.DB $50, $00, $00, $00, $00, $00, $01, $50, $00, $00, $00, $00
 	
 	
 background:
