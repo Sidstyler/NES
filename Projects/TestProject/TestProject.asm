@@ -36,6 +36,8 @@ vDistance						.RS 1
 FrameCounter					.RS 1
 
 arrayIndex					.RS 1
+tempVal4						.RS 1
+tempVal5						.RS 1
 
 tempVal1							.RS 1 ; variable used in stuff
 tempVal2							.RS 1 ; variable used in stuff´
@@ -187,6 +189,7 @@ LoadAttributeLoop:
 		
 		INX
 		CPX #EnemyStructSize * NUM_ENEMIES
+		
 		BNE setupEnemiesLoop
   
 
@@ -226,30 +229,19 @@ NMI:
   JSR UpdateMario  ;;Reads controller and moves mario if needed
   
   LDY #E_hMove
+  LDX #$00
   LDA EnemyList, Y
 	BEQ PlayMarioIdle
-  	JSR UpdateMarioAnimation
+  	JSR PlayRunning
   	JMP MarioAnimDone
   PlayMarioIdle:
   	JSR PlayIdle
   MarioAnimDone:
   
-	JSR showCPUUsageBar
-	
 	RTI             ; return from interrupt
 	
 
-showCPUUsageBar:
-  ldx #%00011111  ; sprites + background + monochrome (i.e. WHITE)
-  stx $2001
-  ldy #21  ; add about 23 for each additional line (leave it on WHITE for one scan line)
-.loop
-    dey
-    bne .loop
-  dex    ; sprites + background + NO monochrome  (i.e. #%00011110)
-  stx $2001
-  rts
-	
+
 
 UpdateFrameCounter:
 	INC FrameCounter
@@ -273,6 +265,16 @@ UpdateNPC:
 		JSR TickNPC
 		
 		JSR UpdateEnemies
+		
+		LDA arrayIndex
+		CLC
+		ADC #E_hMove
+		TAY
+		LDA EnemyList, Y
+		BEQ NoNPCAnim
+			LDX arrayIndex
+			JSR PlayRunning
+		NoNPCAnim:
 		
 		;Do the increment dance
 		LDX arrayIndex
@@ -301,6 +303,7 @@ TickNPC:
 		STA EnemyList, Y
 		
 		BNE NoUpdate
+			;last frame of waiting, set move direction once
 			JSR SetEnemyDirection
 		NoUpdate:
 	
@@ -324,6 +327,9 @@ TickNPC:
 	
 	CMP #$40
 	BNE TickDone
+		;last frame of movement
+		LDX arrayIndex; 
+		JSR PlayIdle
 		
 		LDA arrayIndex
 		CLC
@@ -356,19 +362,12 @@ ResetEnemyMovement:
 
   LDA arrayIndex
 	CLC
-	ADC #E_moveRight
+	ADC #E_hMove
 	TAY
 	
 	LDA #$00						; value to set on the variable we specify in the next line
   STA EnemyList,Y		; Completing the variable set instruction using data specified above
   
-  LDA arrayIndex
-	CLC
-	ADC #E_moveLeft
-	TAY
-	
-	LDA #$00						; value to set on the variable we specify in the next line
-  STA EnemyList,Y		; Completing the variable set instruction using data specified above
   
   LDA arrayIndex
 	CLC
@@ -385,6 +384,9 @@ ResetEnemyMovement:
 	
 	LDA #$00						; value to set on the variable we specify in the next line
   STA EnemyList,Y		; Completing the variable set instruction using data specified above
+  
+  LDX #$0C
+  STX tempVal4
   
 	RTS
 	
@@ -410,7 +412,7 @@ SetEnemyDirection:
 		
 		LDA arrayIndex
 		CLC
-		ADC #E_moveLeft
+		ADC #E_hMove
 		TAY
 		
 		;move left
@@ -422,10 +424,10 @@ SetEnemyDirection:
 	
 	LDA arrayIndex
 	CLC
-	ADC #E_moveRight
+	ADC #E_hMove
 	TAY
 	
-	LDA #$01
+	LDA #$02
 	
 	STA EnemyList, Y
 	
@@ -441,14 +443,21 @@ SetEnemyDirection:
 	
 	LDA arrayIndex
 	CLC
-	ADC #E_moveLeft
+	ADC #E_hMove
 	TAY
-	
 	LDA EnemyList, Y
-	TAY
-	
+		
+	LDY #$00
+		
+	SEC
+	SBC #$01
+		
+	BNE NoNPCMirror
+		LDY #$01
+	NoNPCMirror:
+		
 	JSR MirrorSprite
-
+	
 	JSR GetVerticalValues
 
 	BEQ VerticalMoveDone
@@ -471,20 +480,11 @@ SetEnemyDirection:
 SetVerticalMovement:
 	LDA arrayIndex
 	CLC
-	ADC #E_moveRight
+	ADC #E_hMove
 	TAY
 	
 	LDA #$00						; value to set on the variable we specify in the next line
 	STA EnemyList,Y		; Completing the variable set instruction using data specified above
-	  
-	LDA arrayIndex
-	CLC
-	ADC #E_moveLeft
-	TAY
-	
-	LDA #$00						; value to set on the variable we specify in the next line
-	STA EnemyList,Y		; Completing the variable set instruction using data specified above
-
 
 	LDA tempVal3
 	BMI SetMoveDown
@@ -605,11 +605,12 @@ ReadADone:
 UpdateEnemies:
 	LDA arrayIndex
 	CLC
-	ADC #E_moveRight
+	ADC #E_hMove
 	TAY
 	
 	LDA EnemyList,Y
-	BEQ MoveRightDone
+	CMP #$02
+	BNE MoveRightDone
 		LDA arrayIndex
 		CLC
 		ADC #E_spriteId
@@ -630,11 +631,12 @@ UpdateEnemies:
 MoveRightDone:
 	LDA arrayIndex
 	CLC
-	ADC #E_moveLeft
+	ADC #E_hMove
 	TAY
 	
 	LDA EnemyList,Y
-	BEQ MoveLeftDone
+	CMP #$01
+	BNE MoveLeftDone
 		LDA arrayIndex
 		CLC
 		ADC #E_spriteId
@@ -810,7 +812,10 @@ Modulus:
 		ADC tempVal2
 	RTS
 
-UpdateMarioAnimation:
+;X -register  = index in array
+PlayRunning:	
+	STX tempVal4 				; index in array of character to update
+	
 	LDX FrameCounter 		;
 	STX tempVal1				;
 	
@@ -819,10 +824,16 @@ UpdateMarioAnimation:
 	
 	JSR Mod							;
 	
-	BNE AnimDone				; if the FrameCOunter % 8 is not zero we do not update
-		LDX #$00
+	BEQ ContinueAnimation				; if the FrameCOunter % 8 is not zero we do not update
+		RTS
 	
-		LDY #E_currentAnimFrame
+	ContinueAnimation:
+		LDX #$00
+		
+		LDA tempVal4
+		CLC
+		ADC #E_currentAnimFrame
+		TAY 
 		LDA EnemyList, Y
 		CMP #$00
 			BEQ DoRunAnimation 
@@ -841,35 +852,57 @@ UpdateMarioAnimation:
 		JMP DoRunAnimation
 		
  	DoRunAnimation:
- 	
- 		JSR RemoveMirrorBit
+ 		;tempVal4 = arrayIndex
+ 		JSR RemoveMirrorBit ;returns the unmirrored attribute in Y-register
+ 		
+ 		STY tempVal1 ; Contains the unmirrored attribute now
+ 		
+ 		LDA tempVal4
+		CLC
+		ADC #E_spriteId
+		TAY
+		LDA EnemyList, Y
+		TAY
  
 		LDA runAnimation,X
-		STA BASE_SPR_ADDR+1
-
-		STY BASE_SPR_ADDR+2
+		STA BASE_SPR_ADDR+1, Y
+		
+		LDA tempVal1
+		STA BASE_SPR_ADDR+2, Y
 		INX
 		
 		LDA runAnimation,X
-		STA BASE_SPR_ADDR+5
-		STY BASE_SPR_ADDR+6
+		STA BASE_SPR_ADDR+5, Y
+		
+		LDA tempVal1
+		STA BASE_SPR_ADDR+6, Y
 		INX
 		
 		LDA runAnimation,X
-		STA BASE_SPR_ADDR+9
-		STY BASE_SPR_ADDR+10
+		STA BASE_SPR_ADDR+9, Y
+		
+		LDA tempVal1
+		STA BASE_SPR_ADDR+10, Y
 		INX
 		
 		LDA runAnimation,X
-		STA BASE_SPR_ADDR+13
-		STY BASE_SPR_ADDR+14
+		STA BASE_SPR_ADDR+13, Y
+		
+		LDA tempVal1
+		STA BASE_SPR_ADDR+14, Y
 		INX
 		
-		LDY #E_spriteId
+		LDA tempVal4
+		CLC
+		ADC #E_spriteId
+		TAY
 		LDA EnemyList, Y
 		TAX
 		
-		LDY #E_hMove
+		LDA tempVal4
+		CLC
+		ADC #E_hMove
+		TAY
 		LDA EnemyList, Y
 		
 		LDY #$00
@@ -881,9 +914,12 @@ UpdateMarioAnimation:
 			LDY #$01
 		NoMirror:
 		
-		JSR MirrorSprite	
+	  JSR MirrorSprite	
 		
-		LDY #E_currentAnimFrame
+		LDA tempVal4
+		CLC
+		ADC #E_currentAnimFrame
+		TAY
 		LDA EnemyList, Y
 		CLC
 		ADC #$01
@@ -900,36 +936,70 @@ UpdateMarioAnimation:
 	AnimDone:
 	RTS
 	
+;X -register  = index in array
 PlayIdle:
-	JSR RemoveMirrorBit
-
+	STX tempVal4
+	
+	;tempVal4 = arrayIndex
+	JSR RemoveMirrorBit ; returns unmirrored attribute in Y-register
+	STY tempVal1 ; Contains the unmirrored attribute now
+	
+	LDA tempVal4
+	CLC
+	
+	
+	ADC #E_spriteId
+	TAY
+	
+	LDA EnemyList, Y
+	TAY
+	
 	LDX #$00
 	
+	
+	
 	LDA idleAnimation,X
-	STA BASE_SPR_ADDR+1
-	STY BASE_SPR_ADDR+2
+	STA BASE_SPR_ADDR+1, Y
+	
+	LDA tempVal1
+	STA BASE_SPR_ADDR+2, Y
 	INX
 	
 	LDA idleAnimation,X
-	STA BASE_SPR_ADDR+5
-	STY BASE_SPR_ADDR+6
+	STA BASE_SPR_ADDR+5, Y
+	
+	LDA tempVal1
+	STA BASE_SPR_ADDR+6, Y
 	INX
 	
 	LDA idleAnimation,X
-	STA BASE_SPR_ADDR+9
-	STY BASE_SPR_ADDR+10
+	STA BASE_SPR_ADDR+9, Y
+	
+	LDA tempVal1
+	STA BASE_SPR_ADDR+10, Y
 	INX
 	
 	LDA idleAnimation,X
-	STA BASE_SPR_ADDR+13
-	STY BASE_SPR_ADDR+14
+	STA BASE_SPR_ADDR+13, Y
+	
+	LDA tempVal1
+	STA BASE_SPR_ADDR+14, Y
 	INX
 	
-	LDY #E_spriteId
+	
+	
+	LDA tempVal4
+	CLC
+	ADC #E_spriteId
+	TAY
+	
 	LDA EnemyList, Y
 	TAX
 	
-	LDY #E_hMove
+	LDA tempVal4
+	CLC
+	ADC #E_hMove
+	TAY
 	LDA EnemyList, Y
 	
 	LDY #$00
@@ -944,24 +1014,24 @@ PlayIdle:
 	JSR MirrorSprite	
 	
 	RTS
-	
+
+; tempVal4 = index in array
 ; returns new atribute in Y register
 RemoveMirrorBit:
-	LDA BASE_SPR_ADDR+2
-	AND #%01000000
-	
-	BEQ NoRemove64
-		SEC
-		SBC #$40
-	
-	NoRemove64:
-	
-	AND #%10000000
-	BEQ NoRemove128
-		SEC
-		SBC #$80	
-	NoRemove128:
+	LDA tempVal4
+	CLC
+	ADC #E_spriteId
 	TAY
+	LDA EnemyList, Y
+	TAY
+	
+	LDA BASE_SPR_ADDR+2, Y
+	ORA #$C0
+	
+	SEC
+	SBC #$C0
+	TAY
+	
 	RTS
 	
 ;; X - Sprite number
@@ -1144,22 +1214,22 @@ sprites:
   .DB $18, $39, $01, $28   ;sprite 3 foot tile big step
   
   ;enemy
-  .db $30, $3A, $01, $90   ;sprite 0 head tile feet together
-  .db $30, $37, $01, $98   ;sprite 1 head tile feet together
-  .db $38, $3B, $01, $90   ;sprite 2 foot together
-  .DB $38, $3C, $01, $98   ;sprite 3 foot together
+  .db $30, $3A, $02, $90   ;sprite 0 head tile feet together
+  .db $30, $37, $02, $98   ;sprite 1 head tile feet together
+  .db $38, $3B, $02, $90   ;sprite 2 foot together
+  .DB $38, $3C, $02, $98   ;sprite 3 foot together
   
   ;enemy
-  .db $40, $32, $01, $80   ;sprite 0 head tile small step
-  .db $40, $33, $01, $88   ;sprite 1 head tile big step
-  .db $48, $34, $01, $80   ;sprite 2 foot small step
-  .DB $48, $35, $01, $88   ;sprite 3 foot small step
+  .db $40, $32, $03, $80   ;sprite 0 head tile small step
+  .db $40, $33, $03, $88   ;sprite 1 head tile big step
+  .db $48, $34, $03, $80   ;sprite 2 foot small step
+  .DB $48, $35, $03, $88   ;sprite 3 foot small step
   
   ;enemy
-  .db $80, $36, $03, $40   ;sprite 0
-  .db $80, $37, $03, $48   ;sprite 1
-  .db $88, $38, $03, $40   ;sprite 2
-  .DB $88, $39, $03, $48   ;sprite 3
+  .db $80, $36, $01, $40   ;sprite 0
+  .db $80, $37, $01, $48   ;sprite 1
+  .db $88, $38, $01, $40   ;sprite 2
+  .DB $88, $39, $01, $48   ;sprite 3
   
   ;enemy
   .db $20, $36, $02, $40   ;sprite 0
@@ -1177,7 +1247,7 @@ idleAnimation:
 
 enemyData:
 	.DB $00, $00, $00, $00, $00, $00, $02, $00, $00, $00, $00, $00
-	.DB $10, $00, $00, $00, $00, $00, $01, $00, $00, $00, $00, $00
+	.DB $10, $00, $00, $00, $00, $00, $01, $00, $10, $00, $00, $00
 	.DB $20, $00, $00, $00, $00, $00, $01, $80, $00, $00, $00, $00
 	.DB $30, $00, $00, $00, $00, $00, $01, $90, $00, $00, $00, $00
 	.DB $40, $00, $00, $00, $00, $00, $01, $20, $00, $00, $00, $00
