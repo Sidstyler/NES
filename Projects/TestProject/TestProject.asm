@@ -6,10 +6,6 @@
 ;; Enemy struct
 	.rsset $0000
 E_spriteId					.RS 1
-E_moveRight					.RS 1
-E_moveLeft					.RS 1
-E_moveUp						.RS 1
-E_moveDown					.RS 1
 E_health						.RS 1
 E_speed							.RS 1
 E_moveFrames  			.RS 1
@@ -50,7 +46,7 @@ BASE_SPR_ADDR		= $0200
 MARIO_RUN_SPEED	= $03
 MARIO_WALK_SPEED	= $02
 
-NUM_ENEMIES	= $02
+NUM_ENEMIES	= $04
 
 AddrLow:  .rs 1
 AddrHigh:  .rs 1
@@ -118,17 +114,7 @@ LoadPalettesLoop:
   BNE LoadPalettesLoop  ; Branch to LoadPalettesLoop if compare was Not Equal to zero
                         ; if compare was equal to 32, keep going down
 
-
-
-LoadSprites:
-  LDX #$00              ; start at 0
-LoadSpritesLoop:
-  LDA sprites, x        ; load data from address (sprites +  x)
-  STA $0200, x          ; store into RAM address ($0200 + x)
-  INX                   ; X = X + 1
-  CPX #$10 * ( NUM_ENEMIES  )           ; Compare X to hex $10, decimal 32
-  BNE LoadSpritesLoop   ; Branch to LoadSpritesLoop if compare was Not Equal to zero
-                        ; if compare was equal to 32, keep going down
+	JSR LoadSprites
               
 LoadBackground:
   LDA $2002
@@ -181,16 +167,9 @@ LoadAttributeLoop:
   LDA #%00011110   ; enable sprites, enable background, no clipping on left side
   STA $2001
   
-  setupEnemies:  
-	LDX #$00
-	setupEnemiesLoop:
-		LDA enemyData, X
-		STA EnemyList,X
-		
-		INX
-		CPX #EnemyStructSize * NUM_ENEMIES
-		
-		BNE setupEnemiesLoop
+  
+  
+  JSR LoadCharacterData
   
 
 Forever:
@@ -215,6 +194,8 @@ NMI:
   LDA #$00        ;;tell the ppu there is no background scrolling
   STA $2005
   STA $2005
+  
+  JSR CheckForReset
   
    ;;;all graphics updates done by here, run game engine
   JSR UpdateFrameCounter
@@ -244,10 +225,57 @@ NMI:
   	JMP MarioAnimDone
   MarioAnimDone:
   
+  JSR CheckCollision
+  
+  JSR showCPUUsageBar
+  
 	RTI             ; return from interrupt
 	
 
+LoadSprites:
+  LDX #$00              ; start at 0
+  
+	LoadSpritesLoop:
+  	LDA sprites, x        ; load data from address (sprites +  x)
+ 	 	STA $0200, x          ; store into RAM address ($0200 + x)
+  	INX                   ; X = X + 1
+  	CPX #$10 * ( NUM_ENEMIES  )           ; Compare X to hex $10, decimal 32
+  	BNE LoadSpritesLoop   ; Branch to LoadSpritesLoop if compare was Not Equal to zero
+                        ; if compare was equal to 32, keep going down
+  RTS
 
+LoadCharacterData:
+
+	LDX #$00
+	setupEnemiesLoop:
+		LDA enemyData, X
+		STA EnemyList,X
+		
+		INX
+		CPX #EnemyStructSize * NUM_ENEMIES
+		
+		BNE setupEnemiesLoop
+	
+	RTS
+	
+ResetGame:
+	JSR LoadSprites
+	JSR LoadCharacterData
+	
+	JSR ResetEnemyMovement
+	
+	RTS
+	
+showCPUUsageBar:
+  ldx #%00011111  ; sprites + background + monochrome (i.e. WHITE)
+  stx $2001
+  ldy #21  ; add about 23 for each additional line (leave it on WHITE for one scan line)
+.loop
+    dey
+    bne .loop
+  dex    ; sprites + background + NO monochrome  (i.e. #%00011110)
+  stx $2001
+  RTS
 
 UpdateFrameCounter:
 	INC FrameCounter
@@ -259,6 +287,94 @@ ResetCounter:
   LDA #$00
   STA FrameCounter 
 FrameCounterDone:
+	RTS
+	
+CheckCollision:
+	LDA #EnemyStructSize
+	STA arrayIndex
+	
+	CheckCollisionLoop:
+		LDA BASE_SPR_ADDR + 3 ; x-value
+		STA tempVal1 ; playerX
+	
+		LDA BASE_SPR_ADDR ; Y-value
+		STA tempVal2 ; playerY
+	
+		LDA arrayIndex
+		CLC
+		ADC #E_spriteId
+		TAX
+		
+		LDA EnemyList, X
+		TAY
+		
+		LDA BASE_SPR_ADDR + 3, Y ; x-value
+		CLC
+		ADC #$10
+		
+		SEC 
+		SBC tempVal1
+		;if( enemy.x + eenemy.width < player.x ) 
+				;continue 
+		BMI NoCollision
+			
+			LDA BASE_SPR_ADDR + 3, Y ; x-value
+			TAX
+			
+			LDA tempVal1
+			CLC 
+			ADC #$10
+			STA tempVal1
+			
+			TXA 
+			SEC
+			SBC tempVal1
+			
+		;	if( enemy.x > ( player.x + player.width ) ) 
+		; 	continue
+			BPL NoCollision
+				
+				LDA BASE_SPR_ADDR, Y ; x-value
+				CLC
+				ADC #$10
+				
+				SEC
+				SBC tempVal2
+				
+				;if( enemy.y + enemy.height < player.y ) 
+				;continue 
+				BMI NoCollision
+				
+					LDA BASE_SPR_ADDR, Y ; x-value
+					TAX
+					
+					LDA tempVal2
+					CLC 
+					ADC #$10
+					STA tempVal2
+					
+					TXA 
+					SEC
+					SBC tempVal2
+					
+					;if( enemy.y > player.y + player.width ) 
+					;continue
+					BPL NoCollision
+						;collision found! 
+						JSR ResetGame
+						RTS
+		NoCollision:
+	
+		;Do the increment dance
+		LDX arrayIndex
+		TXA
+		CLC
+		ADC #EnemyStructSize
+		TAX	
+		STX arrayIndex
+		CPX #EnemyStructSize * NUM_ENEMIES
+		BNE CheckCollisionLoop
+
 	RTS
 
 UpdateNPC: 
@@ -586,6 +702,17 @@ ReadController2Loop:
 	ROL buttons2			;shift bits in buttons1 left. carry is set as bit0
 	DEX
 	BNE ReadController2Loop
+	RTS
+	
+CheckForReset:
+	LDA buttons1
+	AND #%00100000
+	
+	BEQ ReadSelectDone
+		 JSR ResetGame
+		 JMP ReadSelectDone 
+	
+	ReadSelectDone:
 	RTS
 	
 SetMoveSpeed:
@@ -1250,7 +1377,7 @@ UpdateSpriteH:
   .org $E000
 palette:
   .db $22,$29,$1A,$0F,  $22,$36,$17,$0F,  $22,$30,$21,$0F,  $22,$27,$17,$0F   ;;background palette
-  .db $22,$16,$28,$18,  $22,$30,$28,$29,  $22,$1C,$15,$14,  $22,$02,$38,$3C    ;;sprite palette
+  .db $22,$16,$29,$27,  $22,$16,$12,$27,  $22,$16,$30,$27,  $22,$16,$3F,$27    ;;sprite palette
 
 sprites:
      ;vert tile attr horiz
@@ -1262,22 +1389,22 @@ sprites:
   .DB $88, $11, $00, $88   ;sprite 3 foot idle
   
   ;enemy
-  .db $10, $00, $01, $20   ;sprite 0 head tile big step
-  .db $10, $01, $01, $28   ;sprite 1 head tile big step
-  .db $18, $10, $01, $20   ;sprite 2 foot tile big step
-  .DB $18, $11, $01, $28   ;sprite 3 foot tile big step
+  .db $24, $00, $01, $20   ;sprite 0 head tile big step
+  .db $24, $01, $01, $28   ;sprite 1 head tile big step
+  .db $2B, $10, $01, $20   ;sprite 2 foot tile big step
+  .DB $2B, $11, $01, $28   ;sprite 3 foot tile big step
   
   ;enemy
-  .db $30, $00, $02, $90   ;sprite 0 head tile feet together
-  .db $30, $01, $02, $98   ;sprite 1 head tile feet together
-  .db $38, $10, $02, $90   ;sprite 2 foot together
-  .DB $38, $11, $02, $98   ;sprite 3 foot together
+  .db $B0, $00, $02, $20   ;sprite 0 head tile feet together
+  .db $B0, $01, $02, $28   ;sprite 1 head tile feet together
+  .db $B8, $10, $02, $20   ;sprite 2 foot together
+  .DB $B8, $11, $02, $28   ;sprite 3 foot together
   
   ;enemy
-  .db $40, $00, $03, $80   ;sprite 0 head tile small step
-  .db $40, $01, $03, $88   ;sprite 1 head tile big step
-  .db $48, $10, $03, $80   ;sprite 2 foot small step
-  .DB $48, $11, $03, $88   ;sprite 3 foot small step
+  .db $60, $00, $03, $C0   ;sprite 0 head tile small step
+  .db $60, $01, $03, $C8   ;sprite 1 head tile big step
+  .db $68, $10, $03, $C0   ;sprite 2 foot small step
+  .DB $68, $11, $03, $C8   ;sprite 3 foot small step
   
   ;enemy
   .db $80, $00, $01, $40   ;sprite 0
@@ -1301,13 +1428,15 @@ linkAnimations:
 	.db $04, $05, $14, $15 ;running up
 	.DB $06, $07, $16, $17 ;running up
 
+
+;spriteindex, HP, speed, moveFrames, waitFrames, hMove, vMove, currentAnimFrame
 enemyData:
-	.DB $00, $00, $00, $00, $00, $00, $02, $00, $00, $00, $00, $00
-	.DB $10, $00, $00, $00, $00, $00, $01, $00, $10, $00, $00, $00
-	.DB $20, $00, $00, $00, $00, $00, $01, $80, $00, $00, $00, $00
-	.DB $30, $00, $00, $00, $00, $00, $01, $90, $00, $00, $00, $00
-	.DB $40, $00, $00, $00, $00, $00, $01, $20, $00, $00, $00, $00
-	.DB $50, $00, $00, $00, $00, $00, $01, $50, $00, $00, $00, $00
+	.DB $00, $00, $02, $00, $00, $00, $00, $00
+	.DB $10, $00, $01, $00, $00, $00, $00, $00
+	.DB $20, $00, $01, $00, $00, $00, $00, $00
+	.DB $30, $00, $01, $00, $00, $00, $00, $00
+	.DB $40, $00, $01, $20, $00, $00, $00, $00
+	.DB $50, $00, $01, $50, $00, $00, $00, $00
 	
 	
 background:
