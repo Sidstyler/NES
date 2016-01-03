@@ -1562,4 +1562,4 @@ attribute:
   
   .bank 2
   .org $0000
-  .incbin "zelda.chr"   ;includes 8KB graphics file from SMB1
+  .incbin "mario.chr"   ;includes 8KB graphics file from SMB1
