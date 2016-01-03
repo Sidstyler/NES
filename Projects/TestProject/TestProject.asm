@@ -6,10 +6,6 @@
 ;; Enemy struct
 	.rsset $0000
 E_spriteId					.RS 1
-E_moveRight					.RS 1
-E_moveLeft					.RS 1
-E_moveUp						.RS 1
-E_moveDown					.RS 1
 E_health						.RS 1
 E_speed							.RS 1
 E_moveFrames  			.RS 1
@@ -36,6 +32,8 @@ vDistance						.RS 1
 FrameCounter					.RS 1
 
 arrayIndex					.RS 1
+tempVal4						.RS 1
+tempVal5						.RS 1
 
 tempVal1							.RS 1 ; variable used in stuff
 tempVal2							.RS 1 ; variable used in stuff´
@@ -48,7 +46,7 @@ BASE_SPR_ADDR		= $0200
 MARIO_RUN_SPEED	= $03
 MARIO_WALK_SPEED	= $02
 
-NUM_ENEMIES	= $06
+NUM_ENEMIES	= $04
 
 AddrLow:  .rs 1
 AddrHigh:  .rs 1
@@ -116,17 +114,7 @@ LoadPalettesLoop:
   BNE LoadPalettesLoop  ; Branch to LoadPalettesLoop if compare was Not Equal to zero
                         ; if compare was equal to 32, keep going down
 
-
-
-LoadSprites:
-  LDX #$00              ; start at 0
-LoadSpritesLoop:
-  LDA sprites, x        ; load data from address (sprites +  x)
-  STA $0200, x          ; store into RAM address ($0200 + x)
-  INX                   ; X = X + 1
-  CPX #$10 * ( NUM_ENEMIES  )           ; Compare X to hex $10, decimal 32
-  BNE LoadSpritesLoop   ; Branch to LoadSpritesLoop if compare was Not Equal to zero
-                        ; if compare was equal to 32, keep going down
+	JSR LoadSprites
               
 LoadBackground:
   LDA $2002
@@ -179,15 +167,9 @@ LoadAttributeLoop:
   LDA #%00011110   ; enable sprites, enable background, no clipping on left side
   STA $2001
   
-  setupEnemies:  
-	LDX #$00
-	setupEnemiesLoop:
-		LDA enemyData, X
-		STA EnemyList,X
-		
-		INX
-		CPX #EnemyStructSize * NUM_ENEMIES
-		BNE setupEnemiesLoop
+  
+  
+  JSR LoadCharacterData
   
 
 Forever:
@@ -213,6 +195,8 @@ NMI:
   STA $2005
   STA $2005
   
+  JSR CheckForReset
+  
    ;;;all graphics updates done by here, run game engine
   JSR UpdateFrameCounter
 
@@ -226,19 +210,62 @@ NMI:
   JSR UpdateMario  ;;Reads controller and moves mario if needed
   
   LDY #E_hMove
+  LDX #$00
   LDA EnemyList, Y
-	BEQ PlayMarioIdle
-  	JSR UpdateMarioAnimation
+	BEQ NoHMove
+  	JSR PlayAnimation
   	JMP MarioAnimDone
-  PlayMarioIdle:
-  	JSR PlayIdle
+  NoHMove: 
+  
+  LDY #E_vMove
+  LDX #$00
+  LDA EnemyList, Y
+	BEQ MarioAnimDone
+		JSR PlayAnimation
+  	JMP MarioAnimDone
   MarioAnimDone:
   
-	JSR showCPUUsageBar
-	
+  JSR CheckCollision
+  
+  JSR showCPUUsageBar
+  
 	RTI             ; return from interrupt
 	
 
+LoadSprites:
+  LDX #$00              ; start at 0
+  
+	LoadSpritesLoop:
+  	LDA sprites, x        ; load data from address (sprites +  x)
+ 	 	STA $0200, x          ; store into RAM address ($0200 + x)
+  	INX                   ; X = X + 1
+  	CPX #$10 * ( NUM_ENEMIES  )           ; Compare X to hex $10, decimal 32
+  	BNE LoadSpritesLoop   ; Branch to LoadSpritesLoop if compare was Not Equal to zero
+                        ; if compare was equal to 32, keep going down
+  RTS
+
+LoadCharacterData:
+
+	LDX #$00
+	setupEnemiesLoop:
+		LDA enemyData, X
+		STA EnemyList,X
+		
+		INX
+		CPX #EnemyStructSize * NUM_ENEMIES
+		
+		BNE setupEnemiesLoop
+	
+	RTS
+	
+ResetGame:
+	JSR LoadSprites
+	JSR LoadCharacterData
+	
+	JSR ResetEnemyMovement
+	
+	RTS
+	
 showCPUUsageBar:
   ldx #%00011111  ; sprites + background + monochrome (i.e. WHITE)
   stx $2001
@@ -248,8 +275,7 @@ showCPUUsageBar:
     bne .loop
   dex    ; sprites + background + NO monochrome  (i.e. #%00011110)
   stx $2001
-  rts
-	
+  RTS
 
 UpdateFrameCounter:
 	INC FrameCounter
@@ -262,6 +288,94 @@ ResetCounter:
   STA FrameCounter 
 FrameCounterDone:
 	RTS
+	
+CheckCollision:
+	LDA #EnemyStructSize
+	STA arrayIndex
+	
+	CheckCollisionLoop:
+		LDA BASE_SPR_ADDR + 3 ; x-value
+		STA tempVal1 ; playerX
+	
+		LDA BASE_SPR_ADDR ; Y-value
+		STA tempVal2 ; playerY
+	
+		LDA arrayIndex
+		CLC
+		ADC #E_spriteId
+		TAX
+		
+		LDA EnemyList, X
+		TAY
+		
+		LDA BASE_SPR_ADDR + 3, Y ; x-value
+		CLC
+		ADC #$10
+		
+		SEC 
+		SBC tempVal1
+		;if( enemy.x + eenemy.width < player.x ) 
+				;continue 
+		BMI NoCollision
+			
+			LDA BASE_SPR_ADDR + 3, Y ; x-value
+			TAX
+			
+			LDA tempVal1
+			CLC 
+			ADC #$10
+			STA tempVal1
+			
+			TXA 
+			SEC
+			SBC tempVal1
+			
+		;	if( enemy.x > ( player.x + player.width ) ) 
+		; 	continue
+			BPL NoCollision
+				
+				LDA BASE_SPR_ADDR, Y ; x-value
+				CLC
+				ADC #$10
+				
+				SEC
+				SBC tempVal2
+				
+				;if( enemy.y + enemy.height < player.y ) 
+				;continue 
+				BMI NoCollision
+				
+					LDA BASE_SPR_ADDR, Y ; x-value
+					TAX
+					
+					LDA tempVal2
+					CLC 
+					ADC #$10
+					STA tempVal2
+					
+					TXA 
+					SEC
+					SBC tempVal2
+					
+					;if( enemy.y > player.y + player.width ) 
+					;continue
+					BPL NoCollision
+						;collision found! 
+						JSR ResetGame
+						RTS
+		NoCollision:
+	
+		;Do the increment dance
+		LDX arrayIndex
+		TXA
+		CLC
+		ADC #EnemyStructSize
+		TAX	
+		STX arrayIndex
+		CPX #EnemyStructSize * NUM_ENEMIES
+		BNE CheckCollisionLoop
+
+	RTS
 
 UpdateNPC: 
 	
@@ -273,6 +387,26 @@ UpdateNPC:
 		JSR TickNPC
 		
 		JSR UpdateEnemies
+		
+		LDA arrayIndex
+		CLC
+		ADC #E_hMove
+		TAY
+		LDA EnemyList, Y
+		BEQ NoNPCHMove
+			LDX arrayIndex
+			JSR PlayAnimation
+		NoNPCHMove: 
+		
+		LDA arrayIndex
+		CLC
+		ADC #E_vMove
+		TAY
+		LDA EnemyList, Y
+		BEQ NoNPCVMove
+			LDX arrayIndex
+			JSR PlayAnimation
+		NoNPCVMove:
 		
 		;Do the increment dance
 		LDX arrayIndex
@@ -301,6 +435,7 @@ TickNPC:
 		STA EnemyList, Y
 		
 		BNE NoUpdate
+			;last frame of waiting, set move direction once
 			JSR SetEnemyDirection
 		NoUpdate:
 	
@@ -324,6 +459,9 @@ TickNPC:
 	
 	CMP #$40
 	BNE TickDone
+		;last frame of movement
+		;LDX arrayIndex; 
+		;JSR PlayIdle
 		
 		LDA arrayIndex
 		CLC
@@ -356,35 +494,23 @@ ResetEnemyMovement:
 
   LDA arrayIndex
 	CLC
-	ADC #E_moveRight
+	ADC #E_hMove
 	TAY
 	
 	LDA #$00						; value to set on the variable we specify in the next line
   STA EnemyList,Y		; Completing the variable set instruction using data specified above
   
+  
   LDA arrayIndex
 	CLC
-	ADC #E_moveLeft
+	ADC #E_vMove
 	TAY
 	
 	LDA #$00						; value to set on the variable we specify in the next line
   STA EnemyList,Y		; Completing the variable set instruction using data specified above
   
-  LDA arrayIndex
-	CLC
-	ADC #E_moveUp
-	TAY
-	
-	LDA #$00						; value to set on the variable we specify in the next line
-  STA EnemyList,Y		; Completing the variable set instruction using data specified above
-  
-  LDA arrayIndex
-	CLC
-	ADC #E_moveDown
-	TAY
-	
-	LDA #$00						; value to set on the variable we specify in the next line
-  STA EnemyList,Y		; Completing the variable set instruction using data specified above
+  LDX #$0C
+  STX tempVal4
   
 	RTS
 	
@@ -410,7 +536,7 @@ SetEnemyDirection:
 		
 		LDA arrayIndex
 		CLC
-		ADC #E_moveLeft
+		ADC #E_hMove
 		TAY
 		
 		;move left
@@ -422,10 +548,10 @@ SetEnemyDirection:
 	
 	LDA arrayIndex
 	CLC
-	ADC #E_moveRight
+	ADC #E_hMove
 	TAY
 	
-	LDA #$01
+	LDA #$02
 	
 	STA EnemyList, Y
 	
@@ -441,14 +567,21 @@ SetEnemyDirection:
 	
 	LDA arrayIndex
 	CLC
-	ADC #E_moveLeft
+	ADC #E_hMove
 	TAY
-	
 	LDA EnemyList, Y
-	TAY
-	
+		
+	LDY #$00
+		
+	SEC
+	SBC #$01
+		
+	BNE NoNPCMirror
+		LDY #$01
+	NoNPCMirror:
+		
 	JSR MirrorSprite
-
+	
 	JSR GetVerticalValues
 
 	BEQ VerticalMoveDone
@@ -471,27 +604,18 @@ SetEnemyDirection:
 SetVerticalMovement:
 	LDA arrayIndex
 	CLC
-	ADC #E_moveRight
+	ADC #E_hMove
 	TAY
 	
 	LDA #$00						; value to set on the variable we specify in the next line
 	STA EnemyList,Y		; Completing the variable set instruction using data specified above
-	  
-	LDA arrayIndex
-	CLC
-	ADC #E_moveLeft
-	TAY
-	
-	LDA #$00						; value to set on the variable we specify in the next line
-	STA EnemyList,Y		; Completing the variable set instruction using data specified above
-
 
 	LDA tempVal3
 	BMI SetMoveDown
 	
 	LDA arrayIndex
 	CLC
-	ADC #E_moveUp
+	ADC #E_vMove
 	TAY
 	
 	;move up
@@ -502,10 +626,10 @@ SetVerticalMovement:
 SetMoveDown:
 	LDA arrayIndex
 	CLC
-	ADC #E_moveDown
+	ADC #E_vMove
 	TAY
 	
-	LDA #$01
+	LDA #$02
 	STA EnemyList, Y
 VerticalMoveDone:
 	RTS
@@ -580,6 +704,17 @@ ReadController2Loop:
 	BNE ReadController2Loop
 	RTS
 	
+CheckForReset:
+	LDA buttons1
+	AND #%00100000
+	
+	BEQ ReadSelectDone
+		 JSR ResetGame
+		 JMP ReadSelectDone 
+	
+	ReadSelectDone:
+	RTS
+	
 SetMoveSpeed:
 	LDA #MARIO_WALK_SPEED
 	
@@ -605,11 +740,12 @@ ReadADone:
 UpdateEnemies:
 	LDA arrayIndex
 	CLC
-	ADC #E_moveRight
+	ADC #E_hMove
 	TAY
 	
 	LDA EnemyList,Y
-	BEQ MoveRightDone
+	CMP #$02
+	BNE MoveRightDone
 		LDA arrayIndex
 		CLC
 		ADC #E_spriteId
@@ -630,11 +766,12 @@ UpdateEnemies:
 MoveRightDone:
 	LDA arrayIndex
 	CLC
-	ADC #E_moveLeft
+	ADC #E_hMove
 	TAY
 	
 	LDA EnemyList,Y
-	BEQ MoveLeftDone
+	CMP #$01
+	BNE MoveLeftDone
 		LDA arrayIndex
 		CLC
 		ADC #E_spriteId
@@ -656,10 +793,11 @@ MoveLeftDone:
 	
 	LDA arrayIndex
 	CLC
-	ADC #E_moveDown
+	ADC #E_vMove
 	TAY
 	
 	LDA EnemyList, Y
+	CMP #$01
 	BEQ MoveDownDone
 		LDA arrayIndex
 		CLC
@@ -682,10 +820,11 @@ MoveDownDone:
 
 	LDA arrayIndex
 	CLC
-	ADC #E_moveUp
+	ADC #E_vMove
 	TAY
 	
 	LDA EnemyList, Y
+	CMP #$02
 	BEQ MoveUpDone
 		LDA arrayIndex
 		CLC
@@ -711,10 +850,18 @@ UpdateMario:
 	LDA #$00
 	LDY #E_hMove
 	STA EnemyList, Y ; reset marios moving variable
+	
+	LDA #$00
+	LDY #E_vMove
+	STA EnemyList, Y ; reset marios moving variable
 
 	LDA buttons1
 	AND #%00001000
 	BEQ ReadUpDone
+	
+	LDA #$01
+	LDY #E_vMove
+	STA EnemyList, Y
 	
 	LDY #E_spriteId
 	LDA EnemyList, Y
@@ -731,6 +878,10 @@ ReadUpDone:
 	AND #%00000100
 	BEQ ReadDownDone
 	
+	LDA #$02
+	LDY #E_vMove
+	STA EnemyList, Y
+	
 	LDY #E_spriteId
 	LDA EnemyList, Y
 	TAX
@@ -745,6 +896,10 @@ ReadDownDone:
 	LDA buttons1
 	AND #%00000010
 	BEQ ReadLeftDone
+		LDA #$00
+		LDY #E_vMove
+		STA EnemyList, Y
+	
 		LDA #$01
 		LDY #E_hMove
 		STA EnemyList, Y
@@ -773,6 +928,10 @@ ReadDownDone:
 	LDA buttons1
 	AND #%00000001
 	BEQ ReadRightDone
+		LDA #$00
+		LDY #E_vMove
+		STA EnemyList, Y
+		
 		LDA #$02
 		LDY #E_hMove
 		STA EnemyList, Y
@@ -810,7 +969,10 @@ Modulus:
 		ADC tempVal2
 	RTS
 
-UpdateMarioAnimation:
+;X -register  = index in array
+PlayAnimation:	
+	STX tempVal4 				; index in array of character to update
+	
 	LDX FrameCounter 		;
 	STX tempVal1				;
 	
@@ -819,57 +981,109 @@ UpdateMarioAnimation:
 	
 	JSR Mod							;
 	
-	BNE AnimDone				; if the FrameCOunter % 8 is not zero we do not update
-		LDX #$00
+	BEQ ContinueAnimation				; if the FrameCOunter % 8 is not zero we do not update
+		RTS
 	
-		LDY #E_currentAnimFrame
+	ContinueAnimation:
+		LDX #$00
+		
+		LDA tempVal4
+		CLC
+		ADC #E_currentAnimFrame
+		TAY 
 		LDA EnemyList, Y
 		CMP #$00
-			BEQ DoRunAnimation 
-		CMP #$01
-			BNE SetFrame2
-		CMP #$02
-			BNE SetFrame3
+		BEQ DoAnimation
 		
-
+		CMP #$01
+		BNE SetFrame2
+		
 	SetFrame2: 
 		LDX #$04
-		JMP DoRunAnimation
+		JMP DoAnimation
+	
+ 	DoAnimation:
+ 		;choose animation 
+ 		
+		LDA tempVal4
+		CLC
+		ADC #E_hMove
+		TAY 
+		LDA EnemyList, Y
+		CMP #$00
 		
-	SetFrame3:
-		LDX #$08
-		JMP DoRunAnimation
+		BEQ NoRunVAnimation
+			TXA 
+			ADC #$07
+			TAX
+			JMP NoRunUpAnim
+		NoRunVAnimation:
 		
- 	DoRunAnimation:
+		LDA tempVal4
+		CLC
+		ADC #E_vMove
+		TAY 
+		LDA EnemyList, Y
+		CMP #$01
+		BNE NoRunUpAnim
+			TXA 
+			ADC #$0F
+			TAX
+		NoRunUpAnim:
+		
+		
  	
- 		JSR RemoveMirrorBit
+ 		;tempVal4 = arrayIndex
+ 		JSR RemoveMirrorBit ;returns the unmirrored attribute in Y-register
+ 		
+ 		STY tempVal1 ; Contains the unmirrored attribute now
+ 		
+ 		LDA tempVal4
+		CLC
+		ADC #E_spriteId
+		TAY
+		LDA EnemyList, Y
+		TAY
  
-		LDA runAnimation,X
-		STA BASE_SPR_ADDR+1
-
-		STY BASE_SPR_ADDR+2
+		LDA linkAnimations,X
+		STA BASE_SPR_ADDR+1, Y
+		
+		LDA tempVal1
+		STA BASE_SPR_ADDR+2, Y
 		INX
 		
-		LDA runAnimation,X
-		STA BASE_SPR_ADDR+5
-		STY BASE_SPR_ADDR+6
+		LDA linkAnimations,X
+		STA BASE_SPR_ADDR+5, Y
+		
+		LDA tempVal1
+		STA BASE_SPR_ADDR+6, Y
 		INX
 		
-		LDA runAnimation,X
-		STA BASE_SPR_ADDR+9
-		STY BASE_SPR_ADDR+10
+		LDA linkAnimations,X
+		STA BASE_SPR_ADDR+9, Y
+		
+		LDA tempVal1
+		STA BASE_SPR_ADDR+10, Y
 		INX
 		
-		LDA runAnimation,X
-		STA BASE_SPR_ADDR+13
-		STY BASE_SPR_ADDR+14
+		LDA linkAnimations,X
+		STA BASE_SPR_ADDR+13, Y
+		
+		LDA tempVal1
+		STA BASE_SPR_ADDR+14, Y
 		INX
 		
-		LDY #E_spriteId
+		LDA tempVal4
+		CLC
+		ADC #E_spriteId
+		TAY
 		LDA EnemyList, Y
 		TAX
 		
-		LDY #E_hMove
+		LDA tempVal4
+		CLC
+		ADC #E_hMove
+		TAY
 		LDA EnemyList, Y
 		
 		LDY #$00
@@ -881,15 +1095,18 @@ UpdateMarioAnimation:
 			LDY #$01
 		NoMirror:
 		
-		JSR MirrorSprite	
+	  JSR MirrorSprite	
 		
-		LDY #E_currentAnimFrame
+		LDA tempVal4
+		CLC
+		ADC #E_currentAnimFrame
+		TAY
 		LDA EnemyList, Y
 		CLC
 		ADC #$01
 		STA EnemyList, Y
 		
-		CMP #$03									; CMP takes X - var
+		CMP #$02									; CMP takes X - var
 		BEQ ResetMoveAnimCounter  
 			JMP AnimDone
 		
@@ -900,36 +1117,70 @@ UpdateMarioAnimation:
 	AnimDone:
 	RTS
 	
+;X -register  = index in array
 PlayIdle:
-	JSR RemoveMirrorBit
-
+	STX tempVal4
+	
+	;tempVal4 = arrayIndex
+	JSR RemoveMirrorBit ; returns unmirrored attribute in Y-register
+	STY tempVal1 ; Contains the unmirrored attribute now
+	
+	LDA tempVal4
+	CLC
+	
+	
+	ADC #E_spriteId
+	TAY
+	
+	LDA EnemyList, Y
+	TAY
+	
 	LDX #$00
 	
-	LDA idleAnimation,X
-	STA BASE_SPR_ADDR+1
-	STY BASE_SPR_ADDR+2
+	
+	
+	LDA linkAnimations,X
+	STA BASE_SPR_ADDR+1, Y
+	
+	LDA tempVal1
+	STA BASE_SPR_ADDR+2, Y
 	INX
 	
-	LDA idleAnimation,X
-	STA BASE_SPR_ADDR+5
-	STY BASE_SPR_ADDR+6
+	LDA linkAnimations,X
+	STA BASE_SPR_ADDR+5, Y
+	
+	LDA tempVal1
+	STA BASE_SPR_ADDR+6, Y
 	INX
 	
-	LDA idleAnimation,X
-	STA BASE_SPR_ADDR+9
-	STY BASE_SPR_ADDR+10
+	LDA linkAnimations,X
+	STA BASE_SPR_ADDR+9, Y
+	
+	LDA tempVal1
+	STA BASE_SPR_ADDR+10, Y
 	INX
 	
-	LDA idleAnimation,X
-	STA BASE_SPR_ADDR+13
-	STY BASE_SPR_ADDR+14
+	LDA linkAnimations,X
+	STA BASE_SPR_ADDR+13, Y
+	
+	LDA tempVal1
+	STA BASE_SPR_ADDR+14, Y
 	INX
 	
-	LDY #E_spriteId
+	
+	
+	LDA tempVal4
+	CLC
+	ADC #E_spriteId
+	TAY
+	
 	LDA EnemyList, Y
 	TAX
 	
-	LDY #E_hMove
+	LDA tempVal4
+	CLC
+	ADC #E_hMove
+	TAY
 	LDA EnemyList, Y
 	
 	LDY #$00
@@ -944,24 +1195,24 @@ PlayIdle:
 	JSR MirrorSprite	
 	
 	RTS
-	
+
+; tempVal4 = index in array
 ; returns new atribute in Y register
 RemoveMirrorBit:
-	LDA BASE_SPR_ADDR+2
-	AND #%01000000
-	
-	BEQ NoRemove64
-		SEC
-		SBC #$40
-	
-	NoRemove64:
-	
-	AND #%10000000
-	BEQ NoRemove128
-		SEC
-		SBC #$80	
-	NoRemove128:
+	LDA tempVal4
+	CLC
+	ADC #E_spriteId
 	TAY
+	LDA EnemyList, Y
+	TAY
+	
+	LDA BASE_SPR_ADDR+2, Y
+	ORA #$C0
+	
+	SEC
+	SBC #$C0
+	TAY
+	
 	RTS
 	
 ;; X - Sprite number
@@ -1126,177 +1377,177 @@ UpdateSpriteH:
   .org $E000
 palette:
   .db $22,$29,$1A,$0F,  $22,$36,$17,$0F,  $22,$30,$21,$0F,  $22,$27,$17,$0F   ;;background palette
-  .db $22,$16,$28,$18,  $22,$30,$28,$29,  $22,$1C,$15,$14,  $22,$02,$38,$3C    ;;sprite palette
+  .db $22,$16,$29,$27,  $22,$16,$12,$27,  $22,$16,$30,$27,  $22,$16,$3F,$27    ;;sprite palette
 
 sprites:
      ;vert tile attr horiz
   
   ;Mario
-  .db $80, $3A, $00, $80   ;sprite 0 head tile idle
-  .db $80, $37, $00, $88   ;sprite 1 head tile idle
-  .db $88, $4f, $00, $80   ;sprite 2 foot idle
-  .DB $88, $50, $00, $88   ;sprite 3 foot idle
+  .db $80, $00, $00, $80   ;sprite 0 head tile idle
+  .db $80, $01, $00, $88   ;sprite 1 head tile idle
+  .db $88, $10, $00, $80   ;sprite 2 foot idle
+  .DB $88, $11, $00, $88   ;sprite 3 foot idle
   
   ;enemy
-  .db $10, $36, $01, $20   ;sprite 0 head tile big step
-  .db $10, $37, $01, $28   ;sprite 1 head tile big step
-  .db $18, $38, $01, $20   ;sprite 2 foot tile big step
-  .DB $18, $39, $01, $28   ;sprite 3 foot tile big step
+  .db $24, $00, $01, $20   ;sprite 0 head tile big step
+  .db $24, $01, $01, $28   ;sprite 1 head tile big step
+  .db $2B, $10, $01, $20   ;sprite 2 foot tile big step
+  .DB $2B, $11, $01, $28   ;sprite 3 foot tile big step
   
   ;enemy
-  .db $30, $3A, $01, $90   ;sprite 0 head tile feet together
-  .db $30, $37, $01, $98   ;sprite 1 head tile feet together
-  .db $38, $3B, $01, $90   ;sprite 2 foot together
-  .DB $38, $3C, $01, $98   ;sprite 3 foot together
+  .db $B0, $00, $02, $20   ;sprite 0 head tile feet together
+  .db $B0, $01, $02, $28   ;sprite 1 head tile feet together
+  .db $B8, $10, $02, $20   ;sprite 2 foot together
+  .DB $B8, $11, $02, $28   ;sprite 3 foot together
   
   ;enemy
-  .db $40, $32, $01, $80   ;sprite 0 head tile small step
-  .db $40, $33, $01, $88   ;sprite 1 head tile big step
-  .db $48, $34, $01, $80   ;sprite 2 foot small step
-  .DB $48, $35, $01, $88   ;sprite 3 foot small step
+  .db $60, $00, $03, $C0   ;sprite 0 head tile small step
+  .db $60, $01, $03, $C8   ;sprite 1 head tile big step
+  .db $68, $10, $03, $C0   ;sprite 2 foot small step
+  .DB $68, $11, $03, $C8   ;sprite 3 foot small step
   
   ;enemy
-  .db $80, $36, $03, $40   ;sprite 0
-  .db $80, $37, $03, $48   ;sprite 1
-  .db $88, $38, $03, $40   ;sprite 2
-  .DB $88, $39, $03, $48   ;sprite 3
+  .db $80, $00, $01, $40   ;sprite 0
+  .db $80, $01, $01, $48   ;sprite 1
+  .db $88, $10, $01, $40   ;sprite 2
+  .DB $88, $11, $01, $48   ;sprite 3
   
   ;enemy
-  .db $20, $36, $02, $40   ;sprite 0
-  .db $20, $37, $02, $48   ;sprite 1
-  .db $28, $38, $02, $40   ;sprite 2
-  .DB $28, $39, $02, $48   ;sprite 3
+  .db $20, $00, $02, $40   ;sprite 0
+  .db $20, $01, $02, $48   ;sprite 1
+  .db $28, $10, $02, $40   ;sprite 2
+  .DB $28, $11, $02, $48   ;sprite 3
   
-runAnimation:
-	.DB $3A, $37, $3B, $3C ; sprite feet together
-	.DB $32, $33, $34, $35 ; sprite small step
-	.db $36, $37, $38, $39 ; sprite big
-  
-idleAnimation:
-	.db $3A, $37, $4F, $50 
+linkAnimations:
+	.db $00, $01, $10, $11 ;running down
+	.DB $02, $03, $12, $13 ;running down
+	
+	.DB $0C, $0D, $1C, $1D ;running right
+	.DB $0E, $0F, $1E, $1F ;running right
+	
+	.db $04, $05, $14, $15 ;running up
+	.DB $06, $07, $16, $17 ;running up
 
+
+;spriteindex, HP, speed, moveFrames, waitFrames, hMove, vMove, currentAnimFrame
 enemyData:
-	.DB $00, $00, $00, $00, $00, $00, $02, $00, $00, $00, $00, $00
-	.DB $10, $00, $00, $00, $00, $00, $01, $00, $00, $00, $00, $00
-	.DB $20, $00, $00, $00, $00, $00, $01, $80, $00, $00, $00, $00
-	.DB $30, $00, $00, $00, $00, $00, $01, $90, $00, $00, $00, $00
-	.DB $40, $00, $00, $00, $00, $00, $01, $20, $00, $00, $00, $00
-	.DB $50, $00, $00, $00, $00, $00, $01, $50, $00, $00, $00, $00
+	.DB $00, $00, $02, $00, $00, $00, $00, $00
+	.DB $10, $00, $01, $00, $00, $00, $00, $00
+	.DB $20, $00, $01, $00, $00, $00, $00, $00
+	.DB $30, $00, $01, $00, $00, $00, $00, $00
+	.DB $40, $00, $01, $20, $00, $00, $00, $00
+	.DB $50, $00, $01, $50, $00, $00, $00, $00
 	
 	
 background:
   .db $24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24  ;;row 1
   .db $24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24  ;;all sky
+  
+  .db $45,$45,$45,$45,$45,$45,$45,$45,$45,$45,$45,$45,$45,$45,$45,$45  ;;row 2
+  .db $45,$45,$45,$45,$45,$45,$45,$45,$45,$45,$45,$45,$45,$45,$45,$45 ;;all sky
  
-  .db $47,$47,$47,$47,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24  ;;row 2
-  .db $24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24  ;;all sky
+  .db $47,$47,$47,$47,$47,$47,$47,$47,$47,$47,$47,$47,$47,$47,$47,$47  ;;row 3
+  .db $47,$47,$47,$47,$47,$47,$47,$47,$47,$47,$47,$47,$47,$47,$47,$47  ;;row 1
  
-  .db $45,$45,$45,$45,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24  ;;row 3
-  .db $24,$24,$24,$24,$24,$24,$24,$24,$36,$37,$24,$24,$24,$24,$24,$24  ;;all sky
  
-  .db $47,$47,$47,$47,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24  ;;row 4
-  .db $24,$24,$24,$24,$24,$24,$24,$35,$25,$25,$38,$24,$24,$24,$24,$24  ;;all sky
+  .db $45,$45,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24  ;;row 8
+  .db $24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$45,$45  ;;all sky
  
-  .db $24,$24,$24,$24,$45,$45,$24,$24,$45,$45,$45,$45,$45,$45,$24,$24  ;;row 5
-  .db $24,$24,$24,$24,$24,$24,$24,$39,$3A,$3B,$3C,$24,$53,$54,$24,$24  ;;some brick tops
+  .db $47,$47,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24  ;;row 1
+  .DB $24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$47,$47  ;;all sky
+  
+  .db $45,$45,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24  ;;row 4
+  .db $24,$24,$24,$24,$24,$24,$24,$24,$36,$37,$24,$24,$24,$24,$45,$45  ;;all sky
  
-  .db $24,$24,$24,$24,$47,$47,$24,$24,$47,$47,$47,$47,$47,$47,$24,$24  ;;row 6
-  .db $24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$55,$56,$24,$24  ;;brick bottoms
+  .db $47,$47,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24  ;;row 5
+  .db $24,$24,$24,$24,$24,$24,$24,$35,$25,$25,$38,$24,$24,$24,$47,$47  ;;some brick tops
  
-  .db $24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24  ;;row 7
-  .db $24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24  ;;all sky
+  .db $45,$45,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24  ;;row 6
+  .db $24,$24,$53,$54,$24,$24,$24,$39,$3A,$3B,$3C,$24,$24,$24,$45,$45  ;;brick bottoms
  
-  .db $24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24  ;;row 8
-  .db $24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24  ;;all sky
+  .db $47,$47,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24  ;;row 7
+  .db $24,$24,$55,$56,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$47,$47  ;;all sky
  
-  .db $24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24  ;;row 1
-  .db $24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24  ;;all sky
+  .db $45,$45,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24  ;;row 1
+  .db $24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$45,$45  ;;all sky
  
-  .db $24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24  ;;row 1
-  .db $24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24  ;;all sky
+  .db $47,$47,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24  ;;row 1
+  .db $24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$47,$47  ;;all sky
  
-  .db $24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24  ;;row 1
-  .db $24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24  ;;all sky
+  .db $45,$45,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24  ;;row 1
+  .db $24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$45,$45  ;;all sky
  
-  .db $24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24  ;;row 1
-  .db $24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24  ;;all sky
+  .db $47,$47,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24  ;;row 1
+  .db $24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$47,$47  ;;all sky
  
-  .db $24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24  ;;row 1
-  .db $24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24  ;;all sky
+  .db $45,$45,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24  ;;row 1
+  .db $24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$45,$45  ;;all sky
  
-  .db $24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24  ;;row 1
-  .db $24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24  ;;all sky
+  .db $47,$47,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24  ;;row 1
+  .db $24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$47,$47  ;;all sky
  
-  .db $24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24  ;;row 1
-  .db $24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24  ;;all sky
+  .db $45,$45,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24  ;;row 1
+  .db $24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$45,$45  ;;all sky
  
-  .db $24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24  ;;row 1
-  .db $24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24  ;;all sky
+  .db $47,$47,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24  ;;row 1
+  .db $24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$47,$47  ;;all sky
  
-  .db $24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24  ;;row 1
-  .db $24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24  ;;all sky
+  .db $45,$45,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24  ;;row 1
+  .db $24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$45,$45  ;;all sky
  
-  .db $24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24  ;;row 2
-  .db $24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24  ;;all sky
+  .db $47,$47,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24  ;;row 1
+  .db $24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$47,$47  ;;all sky
  
-  .db $24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24  ;;row 1
-  .db $24,$24,$24,$24,$24,$24,$24,$24,$36,$37,$24,$24,$24,$24,$24,$24  ;;all sky
+  .db $45,$45,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24  ;;row 1
+  .db $24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$45,$45  ;;all sky
  
-  .db $24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24  ;;row 2
-  .db $24,$24,$24,$24,$24,$24,$24,$35,$25,$25,$38,$24,$24,$24,$24,$24  ;;all sky
+  .db $47,$47,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24  ;;row 1
+  .db $24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$47,$47  ;;all sky
  
-  .db $24,$24,$24,$24,$45,$45,$24,$24,$45,$45,$45,$45,$45,$45,$24,$24  ;;row 3
-  .db $24,$24,$24,$24,$24,$24,$24,$39,$3A,$3B,$3C,$24,$53,$54,$24,$24  ;;some brick tops
+  .db $45,$45,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24  ;;row 1
+  .db $24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$45,$45  ;;all sky
  
-  .db $24,$24,$24,$24,$47,$47,$24,$24,$47,$47,$47,$47,$47,$47,$24,$24  ;;row 4
-  .db $24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$55,$56,$24,$24  ;;brick bottoms
+  .db $47,$47,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24  ;;row 1
+  .db $24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$47,$47  ;;all sky
  
-  .db $24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24  ;;row 1
-  .db $24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24  ;;all sky
+  .db $45,$45,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24  ;;row 1
+  .db $24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$45,$45  ;;all sky
  
-  .db $24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24  ;;row 2
-  .db $24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24  ;;all sky
+  .db $47,$47,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24  ;;row 1
+  .db $24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$47,$47  ;;all sky
  
-  .db $24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24  ;;row 1
-  .db $24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24  ;;all sky
+  .db $45,$45,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24  ;;row 1
+  .db $24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$45,$45  ;;all sky
  
-  .db $24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24  ;;row 1
-  .db $24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24  ;;all sky
+  .db $47,$47,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24  ;;row 1
+  .db $24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$47,$47  ;;all sky
  
-  .db $24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24  ;;row 1
-  .db $24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24  ;;all sky
+  .db $45,$45,$45,$45,$45,$45,$45,$45,$45,$45,$45,$45,$45,$45,$45,$45  ;;row 1
+  .db $45,$45,$45,$45,$45,$45,$45,$45,$45,$45,$45,$45,$45,$45,$45,$45 ;;all sky
  
-  .db $24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24  ;;row 1
-  .db $24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24  ;;all sky
- 
-  .db $24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24  ;;row 1
-  .db $24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24  ;;all sky
- 
-  .db $24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24  ;;row 1
-  .db $24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24  ;;all sky
+  .db $47,$47,$47,$47,$47,$47,$47,$47,$47,$47,$47,$47,$47,$47,$47,$47  ;;row 1
+  .db $47,$47,$47,$47,$47,$47,$47,$47,$47,$47,$47,$47,$47,$47,$47,$47  ;;row 1
  
   .db $24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24  ;;row 1
   .db $24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24  ;;all sky
- 
-  .db $24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24  ;;row 1
-  .db $24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24  ;;all sky
+
 
 
 ; räknat från vänster representerar två bitar attributet för ett mario-block
-;2 3 ;
+;3 2 ;
 ;1 0 ;
 attribute:
-  .db %01101000, %00010000, %01010000, %00010000, %00000000, %10101010, %10101010, %00110000
-	.db %01101000, %00010000, %01010000, %00010000, %00000000, %10101010, %10101010, %00110000
+  .db %01010101, %01010101, %01010101, %01010101, %01010101, %01010101, %01010101, %01010101
+	.db %00010001, %00000000, %11111111, %00010000, %00000000, %10101010, %10101010, %01000100
 	
-	.db %01101000, %00010000, %01010000, %00010000, %00000000, %10101010, %10101010, %00110000
-	.db %01101000, %00010000, %01010000, %00010000, %00000000, %10100000, %10101010, %00110000
+	.db %00010001, %00010000, %01010000, %00010000, %00000000, %10101010, %10101010, %01000100
+	.db %00010001, %00010000, %01010000, %00010000, %00000000, %10100000, %10101010, %01000100
 	
-	.db %01101000, %00010000, %01010000, %00010000, %00000000, %10100000, %10101010, %00110000
-	.db %01101000, %00010000, %01010000, %00010000, %00000000, %10100000, %10101010, %00110000
+	.db %00010001, %00010000, %01010000, %00010000, %00000000, %10100000, %10101010, %01000100
+	.db %00010001, %00010000, %01010000, %00010000, %00000000, %10100000, %10101010, %01000100
 	
-	.db %01101000, %00010000, %01010000, %00010000, %00000000, %10100000, %10101010, %00110000
-	.db %01101000, %00010000, %01010000, %00010000, %00000000, %10100000, %10101010, %00110000
+	.db %01010101, %01010000, %01010000, %01010000, %01010000, %01010000, %01010000, %01010101
+	.db %00000101, %00000101, %00000101, %00000101, %00000101, %00000101, %00000101, %01010101
 
   .ORG $FFFA     ;first of the three vectors starts here
   .dw NMI        ;when an NMI happens (once per frame if enabled) the 
@@ -1311,4 +1562,4 @@ attribute:
   
   .bank 2
   .org $0000
-  .incbin "mario.chr"   ;includes 8KB graphics file from SMB1
+  .incbin "zelda.chr"   ;includes 8KB graphics file from SMB1
