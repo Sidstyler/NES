@@ -28,6 +28,13 @@ buttons2						.RS 1 ; player 2 gamepad buttons
 
 checkVar						.RS 1
 
+xIndex						.RS 1
+yIndex						.RS 1
+
+tempVal1							.RS 1 ; variable used in stuff
+tempVal2							.RS 1 ; variable used in stuff´
+tempVal3							.RS 1 ; variable used in stuff´
+
 hDistance						.RS 1
 vDistance						.RS 1
 
@@ -37,9 +44,7 @@ arrayIndex					.RS 1
 tempVal4						.RS 1
 tempVal5						.RS 1
 
-tempVal1							.RS 1 ; variable used in stuff
-tempVal2							.RS 1 ; variable used in stuff´
-tempVal3							.RS 1 ; variable used in stuff´
+
 
 EnemyList						.RS EnemyStructSize * 10	
 
@@ -205,11 +210,13 @@ NMI:
   JSR ReadController1 ; Get controller data for P1
   JSR ReadController2 ; Controller 2
 	
-  JSR UpdateNPC
+  ;JSR UpdateNPC
 	
   JSR SetMoveSpeed
 	
   JSR UpdateMario  ;;Reads controller and moves mario if needed
+  
+  JSR CheckBGCollision
   
   LDX #$00
   
@@ -277,6 +284,70 @@ ResetCounter:
   LDA #$00
   STA FrameCounter 
 FrameCounterDone:
+	RTS
+	
+CheckBGCollision:
+	LDA BASE_SPR_ADDR + 3 ; x-value
+	
+	LSR A
+	LSR A
+	LSR A
+	STA xIndex ; playerX
+
+	LDA BASE_SPR_ADDR ; Y-value
+	LSR A
+	LSR A
+	LSR A
+	STA yIndex ; playerX
+	
+	LDA #$00
+	sta tempVal1
+	
+	LDA background
+	LDX #$00
+	
+	CMP yIndex
+	
+	yLoop:
+	BEQ DoneY
+		LDA tempVal1
+		CLC
+		ADC #$20
+		STA tempVal1
+		
+		LDA yIndex
+		SEC 
+		SBC #$01
+		STA yIndex
+		JMP yLoop
+		
+	DoneY:
+	
+	LDX #$00
+	
+	CMP xIndex
+	
+	xLoop:
+	BEQ DoneX
+		LDA tempVal1
+		CLC
+		ADC #$01
+		STA tempVal1
+		
+		LDA xIndex
+		SEC 
+		SBC #$01
+		STA xIndex
+		JMP xLoop
+		
+	DoneX:
+	
+	LDY tempVal1
+	
+	LDA background, Y
+	
+	STA checkVar;
+	
 	RTS
 	
 CheckCollision:
