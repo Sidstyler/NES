@@ -26,6 +26,8 @@ EnemyStructSize			.RS 1
 buttons1						.RS 1 ; player 1 gamepad buttons
 buttons2						.RS 1 ; player 2 gamepad buttons
 
+checkVar						.RS 1
+
 hDistance						.RS 1
 vDistance						.RS 1
 
@@ -209,21 +211,9 @@ NMI:
 	
   JSR UpdateMario  ;;Reads controller and moves mario if needed
   
-  LDY #E_hMove
   LDX #$00
-  LDA EnemyList, Y
-	BEQ NoHMove
-  	JSR PlayAnimation
-  	JMP MarioAnimDone
-  NoHMove: 
   
-  LDY #E_vMove
-  LDX #$00
-  LDA EnemyList, Y
-	BEQ MarioAnimDone
-		JSR PlayAnimation
-  	JMP MarioAnimDone
-  MarioAnimDone:
+  JSR UpdateAnimation
   
   JSR CheckCollision
   
@@ -377,6 +367,27 @@ CheckCollision:
 
 	RTS
 
+; x - arrayIndex of character to update
+UpdateAnimation:
+	TXA ; arrayIndex
+	CLC
+	ADC #E_hMove
+	TAY
+	LDA EnemyList, Y
+	BEQ NoHMove
+		JSR PlayAnimation
+	NoHMove: 
+	
+	TXA ; arrayIndex
+	CLC
+	ADC #E_vMove
+	TAY
+	LDA EnemyList, Y
+	BEQ NoVMove
+		JSR PlayAnimation
+	NoVMove:
+	RTS
+
 UpdateNPC: 
 	
 	LDX #EnemyStructSize ;the first one is mario so we skip one index
@@ -388,25 +399,9 @@ UpdateNPC:
 		
 		JSR UpdateEnemies
 		
-		LDA arrayIndex
-		CLC
-		ADC #E_hMove
-		TAY
-		LDA EnemyList, Y
-		BEQ NoNPCHMove
-			LDX arrayIndex
-			JSR PlayAnimation
-		NoNPCHMove: 
+		LDX arrayIndex
 		
-		LDA arrayIndex
-		CLC
-		ADC #E_vMove
-		TAY
-		LDA EnemyList, Y
-		BEQ NoNPCVMove
-			LDX arrayIndex
-			JSR PlayAnimation
-		NoNPCVMove:
+		JSR UpdateAnimation
 		
 		;Do the increment dance
 		LDX arrayIndex
@@ -721,20 +716,17 @@ SetMoveSpeed:
 	LDY #E_speed
 	STA EnemyList, Y
 	
-;	STA marioCurrentSpeed
-	
 	LDA buttons1
 	AND #%10000000
 	
 	BEQ ReadADone
 	
-	LDA #MARIO_RUN_SPEED
+		LDA #MARIO_RUN_SPEED
 	
-	LDY #E_speed
-	STA EnemyList, Y
+		LDY #E_speed
+		STA EnemyList, Y
 	
-	;STA marioCurrentSpeed
-ReadADone:
+	ReadADone:
 	RTS
 
 UpdateEnemies:
