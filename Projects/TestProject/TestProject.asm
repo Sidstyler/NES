@@ -1351,7 +1351,41 @@ Move4SpriteLeft:
   SBC tempVal1		
   STA tempVal2 ; new xValue	
   
-  ;collision code here =)
+  LDA tempVal1
+  PHA
+  LDA tempVal2 
+  PHA
+  
+  
+  
+  LDA BASE_SPR_ADDR,X
+  TAY
+  LDX tempVal2
+  
+  JSR CheckBGCollision
+  
+  PLA 
+  STA tempVal2
+  PLA
+  STA tempVal1
+  
+  
+  LDX #$00
+  collisionLoop:
+  
+  LDA collisionData,X
+  
+  CMP checkVar
+  BEQ DidCollide
+  	INX
+  	CPX #$02
+  	BNE collisionLoop
+  	JMP CollisionDone
+
+  DidCollide:
+  	RTS
+  CollisionDone:
+
 
 	LDY tempVal2
   LDX tempVal3
