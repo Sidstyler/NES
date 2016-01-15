@@ -28,6 +28,8 @@ buttons2						.RS 1 ; player 2 gamepad buttons
 
 checkVar						.RS 1
 
+backgroundPtr						.RS 1
+
 xIndex						.RS 1
 yIndex						.RS 1
 
@@ -211,12 +213,14 @@ NMI:
   JSR ReadController2 ; Controller 2
 	
   ;JSR UpdateNPC
-	
+  
+  ;LDX BASE_SPR_ADDR+3
+  ;LDY BASE_SPR_ADDR
+  ;JSR CheckBGCollision
+
   JSR SetMoveSpeed
 	
   JSR UpdateMario  ;;Reads controller and moves mario if needed
-  
-  JSR CheckBGCollision
   
   LDX #$00
   
@@ -286,67 +290,86 @@ ResetCounter:
 FrameCounterDone:
 	RTS
 	
+; X - XValue
+; Y - yValue
+; returns the checkVar
 CheckBGCollision:
-	LDA BASE_SPR_ADDR + 3 ; x-value
+	TXA
 	
 	LSR A
 	LSR A
 	LSR A
 	STA xIndex ; playerX
+	
 
-	LDA BASE_SPR_ADDR ; Y-value
+	TYA
 	LSR A
 	LSR A
 	LSR A
 	STA yIndex ; playerX
 	
-	LDA #$00
-	sta tempVal1
+	LDA #$20
+	STA tempVal1 ;Y offset
 	
-	LDA background
-	LDX #$00
+	LDA yIndex
+	STA tempVal2 ; Y - index of current tile
 	
-	CMP yIndex
+	LDA background ; 
+	STA checkVar   ; Save value of the first tile
 	
-	yLoop:
-	BEQ DoneY
-		LDA tempVal1
-		CLC
-		ADC #$20
-		STA tempVal1
-		
-		LDA yIndex
-		SEC 
-		SBC #$01
-		STA yIndex
-		JMP yLoop
-		
-	DoneY:
+	LDX yIndex
+	BEQ DoneLooping
 	
-	LDX #$00
 	
-	CMP xIndex
+	LDA #low(background)
+  STA AddrLow
+  LDA #high(background)
+  STA AddrHigh
+ 
+  LDX #$00              ; Loop X 256 times
+  LDY #$00              ; Loop Y 256 times
+CheckBackgroundsLoop:
+	TYA
+	CLC
+	ADC tempVal1
+	TAY
 	
-	xLoop:
-	BEQ DoneX
-		LDA tempVal1
-		CLC
-		ADC #$01
-		STA tempVal1
-		
-		LDA xIndex
-		SEC 
-		SBC #$01
-		STA xIndex
-		JMP xLoop
-		
-	DoneX:
+	BCS OuterLoop
+
+	LDA [AddrLow],y
+	STA checkVar
 	
-	LDY tempVal1
-	
-	LDA background, Y
-	
-	STA checkVar;
+	INX
+	CPX tempVal2
+	BEQ DoneLooping
+		JMP CheckBackgroundsLoop
+OuterLoop:
+  LDY #$00 
+  INC AddrHigh           ; increment high byte of address backg to next 256 byte chunk
+  INX   
+  CPX yIndex
+	BEQ DoneLooping       
+  BNE CheckBackgroundsLoop   ; if X isn't zero, do again
+  
+  DoneLooping:
+  
+  LDX yIndex
+  BEQ CheckXIndex
+  	LDA #$00
+  	STA yIndex
+  CheckXIndex:
+  	LDX xIndex
+  	BEQ CheckIndexDone
+  		LDA #$01
+  		STA tempVal1
+  		LDA xIndex
+  		STA tempVal2
+  		LDX #$00
+  		STX xIndex
+  		JMP CheckBackgroundsLoop
+  CheckIndexDone:
+  
+	LDA checkVar
 	
 	RTS
 	
@@ -1321,12 +1344,18 @@ Move4SpriteRight:
 ;; Y - speed
 Move4SpriteLeft:
 	LDA BASE_SPR_ADDR+3,X
+	STX tempVal3 ;spriteOffset
 	
 	STY tempVal1	
 	SEC
-  SBC tempVal1									;move speed is 1 
+  SBC tempVal1		
+  STA tempVal2 ; new xValue	
   
-  TAY
+  ;collision code here =)
+
+	LDY tempVal2
+  LDX tempVal3
+  
   JSR UpdateSpriteH
 	RTS 
 	
@@ -1490,6 +1519,9 @@ linkAnimations:
 	
 	.db $04, $05, $14, $15 ;running up
 	.DB $06, $07, $16, $17 ;running up
+	
+collisionData:
+	.DB $45, $47
 
 
 ;spriteindex, HP, speed, moveFrames, waitFrames, hMove, vMove, currentAnimFrame
@@ -1503,35 +1535,35 @@ enemyData:
 	
 	
 background:
-  .db $24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24  ;;row 1
+  .db $24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24  ;;row 0
   .db $24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24  ;;all sky
   
-  .db $45,$45,$45,$45,$45,$45,$45,$45,$45,$45,$45,$45,$45,$45,$45,$45  ;;row 2
+  .db $45,$45,$45,$45,$45,$45,$45,$45,$45,$45,$45,$45,$45,$45,$45,$45  ;;row 1
   .db $45,$45,$45,$45,$45,$45,$45,$45,$45,$45,$45,$45,$45,$45,$45,$45 ;;all sky
  
-  .db $47,$47,$47,$47,$47,$47,$47,$47,$47,$47,$47,$47,$47,$47,$47,$47  ;;row 3
+  .db $47,$47,$47,$47,$47,$47,$47,$47,$47,$47,$47,$47,$47,$47,$47,$47  ;;row 2
   .db $47,$47,$47,$47,$47,$47,$47,$47,$47,$47,$47,$47,$47,$47,$47,$47  ;;row 1
  
  
-  .db $45,$45,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24  ;;row 8
+  .db $45,$45,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24  ;;row 3
   .db $24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$45,$45  ;;all sky
  
-  .db $47,$47,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24  ;;row 1
+  .db $47,$47,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24  ;;row 4
   .DB $24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$47,$47  ;;all sky
   
-  .db $45,$45,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24  ;;row 4
+  .db $45,$45,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24  ;;row 5
   .db $24,$24,$24,$24,$24,$24,$24,$24,$36,$37,$24,$24,$24,$24,$45,$45  ;;all sky
  
-  .db $47,$47,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24  ;;row 5
+  .db $47,$47,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24  ;;row 6
   .db $24,$24,$24,$24,$24,$24,$24,$35,$25,$25,$38,$24,$24,$24,$47,$47  ;;some brick tops
  
-  .db $45,$45,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24  ;;row 6
+  .db $45,$45,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24  ;;row 7
   .db $24,$24,$53,$54,$24,$24,$24,$39,$3A,$3B,$3C,$24,$24,$24,$45,$45  ;;brick bottoms
  
-  .db $47,$47,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24  ;;row 7
+  .db $47,$47,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24  ;;row 8
   .db $24,$24,$55,$56,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$47,$47  ;;all sky
  
-  .db $45,$45,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24  ;;row 1
+  .db $45,$45,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24  ;;row 9
   .db $24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$45,$45  ;;all sky
  
   .db $47,$47,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24  ;;row 1
