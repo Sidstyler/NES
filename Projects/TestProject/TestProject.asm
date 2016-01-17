@@ -212,11 +212,7 @@ NMI:
   JSR ReadController1 ; Get controller data for P1
   JSR ReadController2 ; Controller 2
 	
-  ;JSR UpdateNPC
-  
-  ;LDX BASE_SPR_ADDR+3
-  ;LDY BASE_SPR_ADDR
-  ;JSR CheckBGCollision
+  JSR UpdateNPC
 
   JSR SetMoveSpeed
 	
@@ -292,7 +288,8 @@ FrameCounterDone:
 	
 ; X - XValue
 ; Y - yValue
-; returns the checkVar
+; return
+; A = collision boolean
 CheckBGCollision:
 	TXA
 	
@@ -369,8 +366,26 @@ OuterLoop:
   		JMP CheckBackgroundsLoop
   CheckIndexDone:
   
-	LDA checkVar
 	
+	LDX #$00
+  collisionLoop:
+  
+  LDA collisionData,X
+  
+  CMP checkVar
+  BEQ DidCollide
+  	INX
+  	CPX #$02
+  	BNE collisionLoop
+  	JMP NoCollide
+
+  DidCollide:
+  	LDA #$01
+  	JMP CollisionDone
+  NoCollide:
+  	LDA #$00
+  
+  CollisionDone:
 	RTS
 	
 CheckCollision:
@@ -822,6 +837,20 @@ SetMoveSpeed:
 	
 	ReadADone:
 	RTS
+	
+; X - arrayIndex
+MoveMetaSprite:
+	TXA 
+	
+	CLC
+	ADC #E_hMove
+	TAY
+	
+	LDA EnemyList,Y
+	CMP #$02
+	BNE MoveRightDone
+		JSR Move4SpriteRight
+	RTS
 
 UpdateEnemies:
 	LDA arrayIndex
@@ -832,23 +861,9 @@ UpdateEnemies:
 	LDA EnemyList,Y
 	CMP #$02
 	BNE MoveRightDone
-		LDA arrayIndex
-		CLC
-		ADC #E_spriteId
-		TAY
-		
-		LDA EnemyList, Y
-		TAX
-		
-		LDA arrayIndex
-		CLC
-		ADC #E_speed
-		TAY
-		
-		LDA EnemyList, Y
-		TAY
-		
+		LDX arrayIndex
 		JSR Move4SpriteRight
+		
 MoveRightDone:
 	LDA arrayIndex
 	CLC
@@ -858,21 +873,7 @@ MoveRightDone:
 	LDA EnemyList,Y
 	CMP #$01
 	BNE MoveLeftDone
-		LDA arrayIndex
-		CLC
-		ADC #E_spriteId
-		TAY
-		
-		LDA EnemyList, Y
-		TAX
-		
-		LDA arrayIndex
-		CLC
-		ADC #E_speed
-		TAY
-		
-		LDA EnemyList, Y
-		TAY
+		LDX arrayIndex
 		
 		JSR Move4SpriteLeft
 MoveLeftDone:
@@ -885,22 +886,7 @@ MoveLeftDone:
 	LDA EnemyList, Y
 	CMP #$01
 	BEQ MoveDownDone
-		LDA arrayIndex
-		CLC
-		ADC #E_spriteId
-		TAY
-		
-		LDA EnemyList, Y
-		TAX
-		
-		LDA arrayIndex
-		CLC
-		ADC #E_speed
-		TAY
-		
-		LDA EnemyList, Y
-		TAY
-		
+		LDX arrayIndex
 		JSR Move4SpriteDown
 MoveDownDone:
 
@@ -912,22 +898,7 @@ MoveDownDone:
 	LDA EnemyList, Y
 	CMP #$02
 	BEQ MoveUpDone
-		LDA arrayIndex
-		CLC
-		ADC #E_spriteId
-		TAY
-		
-		LDA EnemyList, Y
-		TAX
-		
-		LDA arrayIndex
-		CLC
-		ADC #E_speed
-		TAY
-		
-		LDA EnemyList, Y
-		TAY
-
+		LDX arrayIndex
 		JSR Move4SpriteUp
 MoveUpDone:
 	RTS
@@ -949,14 +920,7 @@ UpdateMario:
 	LDY #E_vMove
 	STA EnemyList, Y
 	
-	LDY #E_spriteId
-	LDA EnemyList, Y
-	TAX
-	
-	LDY #E_speed
-	LDA EnemyList, Y
-	TAY
-
+	LDX #$00
 	JSR Move4SpriteUp
 ReadUpDone:
 	
@@ -968,14 +932,7 @@ ReadUpDone:
 	LDY #E_vMove
 	STA EnemyList, Y
 	
-	LDY #E_spriteId
-	LDA EnemyList, Y
-	TAX
-	
-	LDY #E_speed
-	LDA EnemyList, Y
-	TAY
-
+	LDX #$00
 	JSR Move4SpriteDown
 ReadDownDone:
 
@@ -998,16 +955,7 @@ ReadDownDone:
 		
 		JSR MirrorSprite
 		
-		LDY #E_spriteId
-		LDA EnemyList, Y
-		TAX
-		
-		LDY #E_speed
-		LDA EnemyList, Y
-		TAY
-
-		
-	
+		LDX #$00
 		JSR Move4SpriteLeft
 	ReadLeftDone:
 
@@ -1029,15 +977,7 @@ ReadDownDone:
 		
 		JSR MirrorSprite
 		
-		LDY #E_spriteId
-		LDA EnemyList, Y
-		TAX
-		
-		LDY #E_speed
-		LDA EnemyList, Y
-		TAY
-
-	
+		LDX #$00
 		JSR Move4SpriteRight
 ReadRightDone:
 	RTS
@@ -1301,61 +1241,115 @@ RemoveMirrorBit:
 	
 	RTS
 	
-;; X - Sprite number
-;; Y - speed
+;X - arrayIndex
 Move4SpriteUp:
-	LDA BASE_SPR_ADDR,X
-		
-	STY tempVal1	
+	JSR GetSpriteAndSpeed
+	
+	LDA BASE_SPR_ADDR,X ; old y value
+	
+	
+	STY tempVal3	; speed
 	SEC
-  SBC tempVal1										;move speed is -1 in Y
+  SBC tempVal3		
+  STA tempVal2 ; new yValue	
   
-  TAY
+  TXA					; sprite ID
+  PHA
+  LDA tempVal2 ; new yValue
+  PHA
+  
+  
+  LDA BASE_SPR_ADDR+3,X
+  TAX
+  LDY tempVal2
+  
+  JSR CheckBGCollision
+  STA tempVal3
+  
+  PLA 
+  STA tempVal2
+  PLA
+  STA tempVal1
+  
+  LDA tempVal3
+  BEQ .NoUpCollide
+  	RTS
+  
+  .NoUpCollide:
+	
+  LDX tempVal1
+  LDY tempVal2
+
   JSR UpdateSpriteV
 	RTS 
 
-;; X - Sprite number
-;; Y - speed
+;; X - arrrayIndex
 Move4SpriteDown:
-	LDA BASE_SPR_ADDR,X
-		
-	STY tempVal1	
+	JSR GetSpriteAndSpeed
+	
+	LDA BASE_SPR_ADDR,X ; old y value
 	CLC
-  ADC tempVal1										;move speed is 1 
+	ADC #$10 ;offset 16px right
+	
+	
+	STY tempVal3	; speed
+	CLC
+  ADC tempVal3		
+  STA tempVal2 ; new yValue	
   
+  TXA					; sprite ID
+  PHA
+  LDA tempVal2 ; new yValue
+  PHA
+  
+  
+  LDA BASE_SPR_ADDR+3,X
+  TAX
+  LDY tempVal2
+  
+  JSR CheckBGCollision
+  STA tempVal3
+  
+  PLA 
+  STA tempVal2
+  PLA
+  STA tempVal1
+  
+  LDA tempVal3
+  BEQ .NoDownCollide
+  	RTS
+  
+  .NoDownCollide:
+	
+  LDX tempVal1
+  LDY tempVal2
+  TYA
+  SEC
+  SBC #$10
   TAY
+  
+  
   JSR UpdateSpriteV
 	RTS 
 	
-;; X - Sprite number
-;; Y - speed
+;; X arrayIndex
 Move4SpriteRight:
-	LDA BASE_SPR_ADDR+3,X
-		
-	STY tempVal1	
-	CLC
-  ADC tempVal1							;move speed is 1 
-  
-  TAY
-  JSR UpdateSpriteH
-	RTS 
-
-;; X - Sprite number
-;; Y - speed
-Move4SpriteLeft:
-	LDA BASE_SPR_ADDR+3,X
-	STX tempVal3 ;spriteOffset
+  JSR GetSpriteAndSpeed
 	
-	STY tempVal1	
-	SEC
-  SBC tempVal1		
+	LDA BASE_SPR_ADDR+3,X ; old x value
+	CLC
+	ADC #$10 ;offset 16px right
+	
+	
+	STY tempVal3	; speed
+	CLC
+  ADC tempVal3		
   STA tempVal2 ; new xValue	
   
-  LDA tempVal1
+  TXA					; sprite ID
   PHA
-  LDA tempVal2 
+  LDA tempVal2 ; new XValue
   PHA
-  
   
   
   LDA BASE_SPR_ADDR,X
@@ -1363,35 +1357,95 @@ Move4SpriteLeft:
   LDX tempVal2
   
   JSR CheckBGCollision
+  STA tempVal3
   
   PLA 
   STA tempVal2
   PLA
   STA tempVal1
   
-  
-  LDX #$00
-  collisionLoop:
-  
-  LDA collisionData,X
-  
-  CMP checkVar
-  BEQ DidCollide
-  	INX
-  	CPX #$02
-  	BNE collisionLoop
-  	JMP CollisionDone
-
-  DidCollide:
+  LDA tempVal3
+  BEQ .NoRightCollide
   	RTS
-  CollisionDone:
-
-
-	LDY tempVal2
-  LDX tempVal3
+  
+  .NoRightCollide:
+	
+  LDX tempVal1
+  LDY tempVal2
+  TYA
+  SEC
+  SBC #$10
+  TAY
+  
   
   JSR UpdateSpriteH
 	RTS 
+
+;; X -array index
+Move4SpriteLeft:
+	JSR GetSpriteAndSpeed
+	
+	LDA BASE_SPR_ADDR+3,X ; old x value
+	
+	
+	STY tempVal3	; speed
+	SEC
+  SBC tempVal3		
+  STA tempVal2 ; new xValue	
+  
+  TXA					; sprite ID
+  PHA
+  LDA tempVal2 ; new XValue
+  PHA
+  
+  
+  LDA BASE_SPR_ADDR,X
+  TAY
+  LDX tempVal2
+  
+  JSR CheckBGCollision
+  STA tempVal3
+  
+  PLA 
+  STA tempVal2
+  PLA
+  STA tempVal1
+  
+  LDA tempVal3
+  BEQ .NoLeftCollide
+  	RTS
+  
+  .NoLeftCollide:
+	
+  LDX tempVal1
+  LDY tempVal2
+  
+  JSR UpdateSpriteH
+	RTS 
+	
+;X - arrayIndex
+;returns
+; X - spriteID
+; Y - speed
+GetSpriteAndSpeed:
+	TXA
+	CLC
+	ADC #E_spriteId
+	TAY
+	
+	LDA EnemyList, Y
+	STA tempVal1 ;sprite ID
+	
+	TXA
+	CLC
+	ADC #E_speed
+	TAY
+	
+	LDA EnemyList, Y
+	TAY							; Y = speed
+
+	LDX tempVal1
+	RTS
 	
 ; X - sprite ID
 ; Y - 0 = no mirror( right ), 1 = mirror ( left ) 
@@ -1467,8 +1521,8 @@ MirrorSprite:
 	
 	
 	
-; X = The sprite offset	
-; Y = new X value for sprite	
+; X = The sprite ID
+; Y = new Y value for sprite	
 UpdateSpriteV:
 	TYA
 	
@@ -1482,8 +1536,8 @@ UpdateSpriteV:
   
 	RTS
 
-;; X = The sprite offset	
-;; Y - new Y value for sprite	
+;; X = The sprite ID
+;; Y - new X value for sprite	
 UpdateSpriteH:
 	TYA
 
