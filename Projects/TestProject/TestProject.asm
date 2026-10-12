@@ -438,6 +438,36 @@ ChargerLogic:
 		RTS
 	
 	.Charge:
+		; stop at the edge of the visible screen
+		LDA BASE_SPR_ADDR + CHARGER_SPR + 3
+		SEC
+		SBC scrollX
+		STA tempVal1 ; screen x
+		LDA worldNT
+		SBC scrollNT
+		BNE .ScreenEdge
+		LDA chargeH
+		CMP #$01
+		BNE .NotLeftEdge
+			LDA tempVal1
+			CMP #CHARGE_SPEED
+			BCC .ScreenEdge
+		.NotLeftEdge:
+		LDA chargeH
+		CMP #$02
+		BNE .NotRightEdge
+			LDA tempVal1
+			CMP #$F0 - CHARGE_SPEED + 1
+			BCS .ScreenEdge
+		.NotRightEdge:
+		JMP .DoCharge
+		.ScreenEdge:
+			LDA #$00
+			STA EnemyList + CHARGER_INDEX + E_hMove
+			STA EnemyList + CHARGER_INDEX + E_vMove
+			STA chargeState
+			RTS
+		.DoCharge:
 		LDA BASE_SPR_ADDR + CHARGER_SPR + 3
 		STA chargeOldX
 		LDA BASE_SPR_ADDR + CHARGER_SPR
