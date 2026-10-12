@@ -34,8 +34,8 @@ xIndex						.RS 1
 yIndex						.RS 1
 
 tempVal1							.RS 1 ; variable used in stuff
-tempVal2							.RS 1 ; variable used in stuff´
-tempVal3							.RS 1 ; variable used in stuff´
+tempVal2							.RS 1 ; variable used in stuffï¿½
+tempVal3							.RS 1 ; variable used in stuffï¿½
 
 hDistance						.RS 1
 vDistance						.RS 1
@@ -59,6 +59,11 @@ NUM_ENEMIES	= $04
 
 AddrLow:  .rs 1
 AddrHigh:  .rs 1
+
+scrollX:  .rs 1 ; horizontal scroll, low 8 bits (0-255)
+scrollNT: .rs 1 ; 0 or 1, the 9th scroll bit (selects the base nametable)
+
+SCROLL_THRESHOLD = $80 ; Mario stops at this screen x and the world scrolls instead
 
 
 ;;;;;;;;;;;;;;;
@@ -126,44 +131,17 @@ LoadPalettesLoop:
 	JSR LoadSprites
               
 LoadBackground:
-  LDA $2002
+  ; first screen -> nametable 0 ($2000), attributes at $23C0
   LDA #$20
-  STA $2006             ; write the high byte of $2000 address
-  LDA #$00
-  STA $2006             ; write the low byte of $2000 address
- 
-  LDA #low(background)
-  STA AddrLow
-  LDA #high(background)
-  STA AddrHigh
- 
-  LDX #$04              ; Loop X 4 times
-  LDY #$00              ; Loop Y 256 times
-LoadBackgroundsLoop:
-  LDA [AddrLow],y
-  STA $2007
-  INY
-  BNE LoadBackgroundsLoop
-; Outer loop
-  INC AddrHigh           ; increment high byte of address backg to next 256 byte chunk
-  DEX                    ; one chunk done so X = X - 1.
-  BNE LoadBackgroundsLoop   ; if X isn't zero, do again
-              
-              
-LoadAttribute:
-  LDA $2002             ; read PPU status to reset the high/low latch
-  LDA #$23
-  STA $2006             ; write the high byte of $23C0 address
-  LDA #$C0
-  STA $2006             ; write the low byte of $23C0 address
-  LDX #$00              ; start out at 0
-LoadAttributeLoop:
-  LDA attribute, x      ; load data from address (attribute + the value in x)
-  STA $2007             ; write to PPU
-  INX                   ; X = X + 1
-  CPX #$40              ; Compare X to hex $08, decimal 8 - copying 8 bytes
-  BNE LoadAttributeLoop  ; Branch to LoadAttributeLoop if compare was Not Equal to zero
-                        ; if compare was equal to 128, keep going down
+  LDX #low(background)
+  LDY #high(background)
+  JSR LoadNametable
+
+  ; second screen -> nametable 1 ($2400), attributes at $27C0
+  LDA #$24
+  LDX #low(background2)
+  LDY #high(background2)
+  JSR LoadNametable
 
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -197,11 +175,13 @@ NMI:
   
   ;;This is the PPU clean up section, so rendering the next frame starts properly.
   LDA #%10010000   ; enable NMI, sprites from Pattern Table 0, background from Pattern Table 1
+  ORA scrollNT     ; base nametable (9th scroll bit)
   STA $2000
   LDA #%00011110   ; enable sprites, enable background, no clipping on left side
   STA $2001
-  LDA #$00        ;;tell the ppu there is no background scrolling
+  LDA scrollX     ;;horizontal background scroll
   STA $2005
+  LDA #$00        ;;no vertical scroll
   STA $2005
   
   JSR CheckForReset
@@ -241,6 +221,43 @@ LoadSprites:
                         ; if compare was equal to 32, keep going down
   RTS
 
+; A - high byte of the nametable address ($20 or $24)
+; X/Y - low/high byte of the 1024 byte nametable data
+LoadNametable:
+  STX AddrLow
+  STY AddrHigh
+  PHA
+  BIT $2002             ; reset the PPU high/low latch
+  STA $2006
+  LDA #$00
+  STA $2006
+  LDX #$04              ; 4 pages of 256 bytes
+  LDY #$00
+.tileLoop:
+  LDA [AddrLow],y
+  STA $2007
+  INY
+  BNE .tileLoop
+  INC AddrHigh
+  DEX
+  BNE .tileLoop
+
+  PLA
+  CLC
+  ADC #$03              ; attribute table is at nametable + $3C0
+  BIT $2002
+  STA $2006
+  LDA #$C0
+  STA $2006
+  LDX #$00
+.attrLoop:
+  LDA attribute, x
+  STA $2007
+  INX
+  CPX #$40
+  BNE .attrLoop
+  RTS
+
 LoadCharacterData:
 
 	LDX #$00
@@ -256,6 +273,10 @@ LoadCharacterData:
 	RTS
 	
 ResetGame:
+	LDA #$00
+	STA scrollX
+	STA scrollNT
+	
 	JSR LoadSprites
 	JSR LoadCharacterData
 	
@@ -291,83 +312,64 @@ FrameCounterDone:
 ; return
 ; A = collision boolean
 CheckBGCollision:
+	; world x = screen x + scroll, bit 8 of it selects the nametable
 	TXA
-	
-	LSR A
-	LSR A
-	LSR A
-	STA xIndex ; playerX
-	
-
-	TYA
-	LSR A
-	LSR A
-	LSR A
-	STA yIndex ; playerX
-	
-	LDA #$20
-	STA tempVal1 ;Y offset
-	
-	LDA yIndex
-	STA tempVal2 ; Y - index of current tile
-	
-	LDA background ; 
-	STA checkVar   ; Save value of the first tile
-	
-	LDX yIndex
-	BEQ DoneLooping
-	
-	
-	LDA #low(background)
-  STA AddrLow
-  LDA #high(background)
-  STA AddrHigh
- 
-  LDX #$00              ; Loop X 256 times
-  LDY #$00              ; Loop Y 256 times
-CheckBackgroundsLoop:
-	TYA
 	CLC
-	ADC tempVal1
-	TAY
+	ADC scrollX
+	STA tempVal1
+	LDA #$00
+	ADC scrollNT
+	AND #$01
+	STA tempVal2 ; 0 = first screen, 1 = second screen
 	
-	BCS OuterLoop
-
+	LDA tempVal1
+	LSR A
+	LSR A
+	LSR A
+	STA xIndex ; tile column
+	
+	TYA
+	LSR A
+	LSR A
+	LSR A
+	STA yIndex ; tile row
+	
+	; offset = row * 32 + column
+	AND #$07
+	ASL A
+	ASL A
+	ASL A
+	ASL A
+	ASL A
+	ORA xIndex
+	STA AddrLow
+	LDA yIndex
+	LSR A
+	LSR A
+	LSR A
+	STA AddrHigh
+	
+	LDA tempVal2
+	BNE .secondScreen
+		LDA #low(background)
+		LDX #high(background)
+		JMP .addBase
+	.secondScreen:
+		LDA #low(background2)
+		LDX #high(background2)
+	.addBase:
+	CLC
+	ADC AddrLow
+	STA AddrLow
+	TXA
+	ADC AddrHigh
+	STA AddrHigh
+	
+	LDY #$00
 	LDA [AddrLow],y
-	STA checkVar
+	STA checkVar ; the background tile at this position
 	
-	INX
-	CPX tempVal2
-	BEQ DoneLooping
-		JMP CheckBackgroundsLoop
-OuterLoop:
-  LDY #$00 
-  INC AddrHigh           ; increment high byte of address backg to next 256 byte chunk
-  INX   
-  CPX yIndex
-	BEQ DoneLooping       
-  BNE CheckBackgroundsLoop   ; if X isn't zero, do again
-  
-  DoneLooping:
-  
-  LDX yIndex
-  BEQ CheckXIndex
-  	LDA #$00
-  	STA yIndex
-  CheckXIndex:
-  	LDX xIndex
-  	BEQ CheckIndexDone
-  		LDA #$01
-  		STA tempVal1
-  		LDA xIndex
-  		STA tempVal2
-  		LDX #$00
-  		STX xIndex
-  		JMP CheckBackgroundsLoop
-  CheckIndexDone:
-  
-	
-	LDX #$00
+		LDX #$00
   collisionLoop:
   
   LDA collisionData,X
@@ -1344,6 +1346,9 @@ Move4SpriteRight:
 	STY tempVal3	; speed
 	CLC
   ADC tempVal3		
+  BCC .RightOnScreen
+  	RTS ; would leave the screen
+  .RightOnScreen:
   STA tempVal2 ; new xValue	
   
   TXA					; sprite ID
@@ -1377,9 +1382,59 @@ Move4SpriteRight:
   SBC #$10
   TAY
   
+  ; Mario (sprite 0) past the scroll threshold: scroll the world instead of moving him
+  CPX #$00
+  BNE .MoveRight
+  CPY #SCROLL_THRESHOLD + 1
+  BCC .MoveRight
+  LDA scrollNT
+  BNE .MoveRight
+  	TYA
+  	SEC
+  	SBC #SCROLL_THRESHOLD
+  	STA tempVal3 ; scroll amount
+  	LDY #SCROLL_THRESHOLD
+  	JSR UpdateSpriteH
+  	JSR ScrollWorld
+  	RTS
+  .MoveRight:
   
   JSR UpdateSpriteH
 	RTS 
+
+; tempVal3 = pixels to scroll right
+ScrollWorld:
+	LDA scrollX
+	CLC
+	ADC tempVal3
+	STA scrollX
+	BCC .ScrollDone
+		; reached the end of the second screen
+		LDA #$00
+		STA scrollX
+		LDA #$01
+		STA scrollNT
+	.ScrollDone:
+	
+	; the enemies live in the world so they move left by the same amount
+	LDX #$10
+	.ShiftEnemy:
+		LDA BASE_SPR_ADDR+3,X
+		SEC
+		SBC tempVal3
+		BCS .ShiftOk
+			LDA #$00 ; stay on the left edge instead of wrapping around
+		.ShiftOk:
+		TAY
+		JSR UpdateSpriteH
+		
+		TXA
+		CLC
+		ADC #$10
+		TAX
+		CPX #$10 * NUM_ENEMIES
+		BNE .ShiftEnemy
+	RTS
 
 ;; X -array index
 Move4SpriteLeft:
@@ -1391,6 +1446,9 @@ Move4SpriteLeft:
 	STY tempVal3	; speed
 	SEC
   SBC tempVal3		
+  BCS .LeftOnScreen
+  	RTS ; would leave the screen
+  .LeftOnScreen:
   STA tempVal2 ; new xValue	
   
   TXA					; sprite ID
@@ -1634,76 +1692,76 @@ background:
  
  
   .db $45,$45,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24  ;;row 3
-  .db $24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$45,$45  ;;all sky
+  .db $24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24  ;;all sky
  
   .db $47,$47,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24  ;;row 4
-  .DB $24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$47,$47  ;;all sky
+  .DB $24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24  ;;all sky
   
   .db $45,$45,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24  ;;row 5
-  .db $24,$24,$24,$24,$24,$24,$24,$24,$36,$37,$24,$24,$24,$24,$45,$45  ;;all sky
+  .db $24,$24,$24,$24,$24,$24,$24,$24,$36,$37,$24,$24,$24,$24,$24,$24  ;;all sky
  
   .db $47,$47,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24  ;;row 6
-  .db $24,$24,$24,$24,$24,$24,$24,$35,$25,$25,$38,$24,$24,$24,$47,$47  ;;some brick tops
+  .db $24,$24,$24,$24,$24,$24,$24,$35,$25,$25,$38,$24,$24,$24,$24,$24  ;;some brick tops
  
   .db $45,$45,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24  ;;row 7
-  .db $24,$24,$53,$54,$24,$24,$24,$39,$3A,$3B,$3C,$24,$24,$24,$45,$45  ;;brick bottoms
+  .db $24,$24,$53,$54,$24,$24,$24,$39,$3A,$3B,$3C,$24,$24,$24,$24,$24  ;;brick bottoms
  
   .db $47,$47,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24  ;;row 8
-  .db $24,$24,$55,$56,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$47,$47  ;;all sky
+  .db $24,$24,$55,$56,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24  ;;all sky
  
   .db $45,$45,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24  ;;row 9
-  .db $24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$45,$45  ;;all sky
+  .db $24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24  ;;all sky
  
-  .db $47,$47,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24  ;;row 1
-  .db $24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$47,$47  ;;all sky
+  .db $47,$47,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24  ;;row 10
+  .db $24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24  ;;all sky
  
-  .db $45,$45,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24  ;;row 1
-  .db $24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$45,$45  ;;all sky
+  .db $45,$45,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24  ;;row 11
+  .db $24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24  ;;all sky
  
-  .db $47,$47,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24  ;;row 1
-  .db $24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$47,$47  ;;all sky
+  .db $47,$47,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24  ;;row 12
+  .db $24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24  ;;all sky
  
-  .db $45,$45,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24  ;;row 1
-  .db $24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$45,$45  ;;all sky
+  .db $45,$45,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24  ;;row 13
+  .db $24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24  ;;all sky
  
-  .db $47,$47,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24  ;;row 1
-  .db $24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$47,$47  ;;all sky
+  .db $47,$47,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24  ;;row 14
+  .db $24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24  ;;all sky
  
-  .db $45,$45,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24  ;;row 1
-  .db $24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$45,$45  ;;all sky
+  .db $45,$45,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24  ;;row 15
+  .db $24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24  ;;all sky
  
-  .db $47,$47,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24  ;;row 1
-  .db $24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$47,$47  ;;all sky
+  .db $47,$47,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24  ;;row 16
+  .db $24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24  ;;all sky
  
-  .db $45,$45,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24  ;;row 1
-  .db $24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$45,$45  ;;all sky
+  .db $45,$45,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24  ;;row 17
+  .db $24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24  ;;all sky
  
-  .db $47,$47,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24  ;;row 1
-  .db $24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$47,$47  ;;all sky
+  .db $47,$47,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24  ;;row 18
+  .db $24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24  ;;all sky
  
-  .db $45,$45,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24  ;;row 1
-  .db $24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$45,$45  ;;all sky
+  .db $45,$45,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24  ;;row 19
+  .db $24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24  ;;all sky
  
-  .db $47,$47,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24  ;;row 1
-  .db $24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$47,$47  ;;all sky
+  .db $47,$47,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24  ;;row 20
+  .db $24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24  ;;all sky
  
-  .db $45,$45,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24  ;;row 1
-  .db $24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$45,$45  ;;all sky
+  .db $45,$45,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24  ;;row 21
+  .db $24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24  ;;all sky
  
-  .db $47,$47,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24  ;;row 1
-  .db $24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$47,$47  ;;all sky
+  .db $47,$47,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24  ;;row 22
+  .db $24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24  ;;all sky
  
-  .db $45,$45,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24  ;;row 1
-  .db $24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$45,$45  ;;all sky
+  .db $45,$45,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24  ;;row 23
+  .db $24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24  ;;all sky
  
-  .db $47,$47,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24  ;;row 1
-  .db $24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$47,$47  ;;all sky
+  .db $47,$47,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24  ;;row 24
+  .db $24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24  ;;all sky
  
-  .db $45,$45,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24  ;;row 1
-  .db $24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$45,$45  ;;all sky
+  .db $45,$45,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24  ;;row 25
+  .db $24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24  ;;all sky
  
-  .db $47,$47,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24  ;;row 1
-  .db $24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$47,$47  ;;all sky
+  .db $47,$47,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24  ;;row 26
+  .db $24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24  ;;all sky
  
   .db $45,$45,$45,$45,$45,$45,$45,$45,$45,$45,$45,$45,$45,$45,$45,$45  ;;row 1
   .db $45,$45,$45,$45,$45,$45,$45,$45,$45,$45,$45,$45,$45,$45,$45,$45 ;;all sky
@@ -1716,7 +1774,7 @@ background:
 
 
 
-; räknat från vänster representerar två bitar attributet för ett mario-block
+; rï¿½knat frï¿½n vï¿½nster representerar tvï¿½ bitar attributet fï¿½r ett mario-block
 ;3 2 ;
 ;1 0 ;
 attribute:
@@ -1731,6 +1789,69 @@ attribute:
 	
 	.db %01010101, %01010000, %01010000, %01010000, %01010000, %01010000, %01010000, %01010101
 	.db %00000101, %00000101, %00000101, %00000101, %00000101, %00000101, %00000101, %01010101
+
+;; Second screen (right). Has an open left edge and the end-of-level wall on the right.
+background2:
+  .db $24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24  ;;row 0
+  .db $24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24
+  .db $45,$45,$45,$45,$45,$45,$45,$45,$45,$45,$45,$45,$45,$45,$45,$45  ;;row 1
+  .db $45,$45,$45,$45,$45,$45,$45,$45,$45,$45,$45,$45,$45,$45,$45,$45
+  .db $47,$47,$47,$47,$47,$47,$47,$47,$47,$47,$47,$47,$47,$47,$47,$47  ;;row 2
+  .db $47,$47,$47,$47,$47,$47,$47,$47,$47,$47,$47,$47,$47,$47,$47,$47
+  .db $24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24  ;;row 3
+  .db $24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$45,$45
+  .db $24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24  ;;row 4
+  .db $24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$47,$47
+  .db $24,$24,$24,$24,$24,$24,$24,$24,$36,$37,$24,$24,$24,$24,$24,$24  ;;row 5
+  .db $24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$45,$45
+  .db $24,$24,$24,$24,$24,$24,$24,$35,$25,$25,$38,$24,$24,$24,$24,$24  ;;row 6
+  .db $24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$47,$47
+  .db $24,$24,$24,$24,$24,$24,$24,$39,$3A,$3B,$3C,$24,$24,$24,$24,$24  ;;row 7
+  .db $24,$24,$24,$24,$53,$54,$24,$24,$24,$24,$24,$24,$24,$24,$45,$45
+  .db $24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24  ;;row 8
+  .db $24,$24,$24,$24,$55,$56,$24,$24,$24,$24,$24,$24,$24,$24,$47,$47
+  .db $24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24  ;;row 9
+  .db $24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$45,$45
+  .db $24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24  ;;row 10
+  .db $24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$47,$47
+  .db $24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24  ;;row 11
+  .db $24,$24,$24,$24,$24,$24,$35,$25,$25,$38,$24,$24,$24,$24,$45,$45
+  .db $24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24  ;;row 12
+  .db $24,$24,$24,$24,$24,$24,$39,$3A,$3B,$3C,$24,$24,$24,$24,$47,$47
+  .db $24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24  ;;row 13
+  .db $24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$45,$45
+  .db $24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24  ;;row 14
+  .db $24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$47,$47
+  .db $24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24  ;;row 15
+  .db $24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$45,$45
+  .db $24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24  ;;row 16
+  .db $24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$47,$47
+  .db $24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24  ;;row 17
+  .db $24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$45,$45
+  .db $24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24  ;;row 18
+  .db $24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$47,$47
+  .db $24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24  ;;row 19
+  .db $24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$45,$45
+  .db $24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24  ;;row 20
+  .db $24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$47,$47
+  .db $24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24  ;;row 21
+  .db $24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$45,$45
+  .db $24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24  ;;row 22
+  .db $24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$47,$47
+  .db $24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24  ;;row 23
+  .db $24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$45,$45
+  .db $24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24  ;;row 24
+  .db $24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$47,$47
+  .db $24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24  ;;row 25
+  .db $24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$45,$45
+  .db $24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24  ;;row 26
+  .db $24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$47,$47
+  .db $45,$45,$45,$45,$45,$45,$45,$45,$45,$45,$45,$45,$45,$45,$45,$45  ;;row 27
+  .db $45,$45,$45,$45,$45,$45,$45,$45,$45,$45,$45,$45,$45,$45,$45,$45
+  .db $47,$47,$47,$47,$47,$47,$47,$47,$47,$47,$47,$47,$47,$47,$47,$47  ;;row 28
+  .db $47,$47,$47,$47,$47,$47,$47,$47,$47,$47,$47,$47,$47,$47,$47,$47
+  .db $24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24  ;;row 29
+  .db $24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24,$24
 
   .ORG $FFFA     ;first of the three vectors starts here
   .dw NMI        ;when an NMI happens (once per frame if enabled) the 
