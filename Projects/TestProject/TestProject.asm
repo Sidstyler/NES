@@ -52,6 +52,12 @@ EnemyList						.RS EnemyStructSize * 10
 
 BASE_SPR_ADDR		= $0200
 
+; World position of every enemy, indexed by sprite offset ($10, $20, ...).
+; The sprite memory only holds what is visible on the current screen.
+WORLD_X_LO	= $0300
+WORLD_X_HI	= $0350 ; 0 = first screen, 1 = second screen
+WORLD_Y		= $03A0
+
 MARIO_RUN_SPEED	= $03
 MARIO_WALK_SPEED	= $02
 
@@ -76,6 +82,10 @@ chargeH:     .rs 1 ; charge direction, same values as E_hMove
 chargeV:     .rs 1 ; charge direction, same values as E_vMove
 chargeOldX:  .rs 1
 chargeOldY:  .rs 1
+
+worldMode:   .rs 1 ; 1 while an enemy is updated in world coordinates (sprite x = world x low byte)
+worldNT:     .rs 1 ; screen (0/1) of the enemy being updated
+probeNT:     .rs 1 ; screen to probe for collision, $FF = use worldNT
 
 SCROLL_THRESHOLD = $80 ; Mario stops at this screen x and the world scrolls instead
 
@@ -218,6 +228,8 @@ NMI:
   
   JSR UpdateAnimation
   
+  JSR RenderEnemies
+  
   JSR CheckCollision
   
   JSR showCPUUsageBar
@@ -235,7 +247,28 @@ LoadSprites:
   	CPX #$10 * ( NUM_ENEMIES  )           ; Compare X to hex $10, decimal 32
   	BNE LoadSpritesLoop   ; Branch to LoadSpritesLoop if compare was Not Equal to zero
                         ; if compare was equal to 32, keep going down
-  RTS
+
+                          ; the enemies start out at their sprite positions in the world
+                          LDX #$10
+                          InitWorldLoop:
+                            LDA BASE_SPR_ADDR+3, X
+                            STA WORLD_X_LO, X
+                            LDA BASE_SPR_ADDR, X
+                            STA WORLD_Y, X
+                            LDA #$00
+                            STA WORLD_X_HI, X
+                            TXA
+                            CLC
+                            ADC #$10
+                            TAX
+                            CPX #$10 * NUM_ENEMIES
+                            BNE InitWorldLoop
+                          LDA #$00
+                          STA worldMode
+                          STA worldNT
+                          LDA #$FF
+                          STA probeNT
+                          RTS
 
 ; A - high byte of the nametable address ($20 or $24)
 ; X/Y - low/high byte of the 1024 byte nametable data
@@ -291,6 +324,14 @@ LoadCharacterData:
 ; The charger turns towards Mario, waits a second and then charges in a straight line
 ; until it hits a wall (hitting Mario is handled by CheckCollision)
 UpdateCharger:
+	LDX #CHARGER_SPR
+	JSR EnterWorld
+	JSR ChargerLogic
+	LDX #CHARGER_SPR
+	JSR ExitWorld
+	RTS
+
+ChargerLogic:
 	LDA chargeState
 	BNE .NotAlign
 		JMP .Turn
@@ -346,15 +387,16 @@ UpdateCharger:
 		STA chargeV
 		
 		; face Mario horizontally
-		LDY #$00
-		LDA BASE_SPR_ADDR + CHARGER_SPR + 3
-		CMP BASE_SPR_ADDR + 3
-		BCC .FaceRight
+		LDA #CHARGER_INDEX
+		STA arrayIndex
+		JSR GetHorizontalValues ; charger x - Mario x in world coordinates
+		BMI .FaceRight
 			LDA #$01
 			LDY #$01
 			JMP .SetFacing
 		.FaceRight:
 			LDA #$02
+			LDY #$00
 		.SetFacing:
 		STA chargeH
 		STA EnemyList + CHARGER_INDEX + E_hMove
@@ -486,6 +528,8 @@ FrameCounterDone:
 ; return
 ; A = collision boolean
 CheckBGCollision:
+	LDA worldMode
+	BNE .WorldPos
 	; world x = screen x + scroll, bit 8 of it selects the nametable
 	TXA
 	CLC
@@ -495,6 +539,18 @@ CheckBGCollision:
 	ADC scrollNT
 	AND #$01
 	STA tempVal2 ; 0 = first screen, 1 = second screen
+	JMP .HavePos
+	.WorldPos:
+	; an enemy: x is already the world x, the screen is given
+	STX tempVal1
+	LDA probeNT
+	BPL .UseProbe
+		LDA worldNT
+	.UseProbe:
+	STA tempVal2
+	LDA #$FF
+	STA probeNT
+	.HavePos:
 	
 	LDA tempVal1
 	LSR A
@@ -582,6 +638,12 @@ CheckCollision:
 		
 		LDA EnemyList, X
 		TAY
+		
+		LDA BASE_SPR_ADDR, Y
+		CMP #$F8
+		BNE .EnemyVisible
+			JMP NoCollision ; hidden, off screen
+		.EnemyVisible:
 		
 		LDA BASE_SPR_ADDR + 3, Y ; x-value
 		CLC
@@ -680,6 +742,8 @@ UpdateNPC:
 	
 	NPCUpdateLoop:
 		
+		JSR EnterEnemy
+		
 		JSR TickNPC
 		
 		JSR UpdateEnemies
@@ -687,6 +751,8 @@ UpdateNPC:
 		LDX arrayIndex
 		
 		JSR UpdateAnimation
+		
+		JSR ExitEnemy
 		
 		;Do the increment dance
 		LDX arrayIndex
@@ -915,7 +981,7 @@ VerticalMoveDone:
 	RTS
 	
 	
-;when done A contains enemyX - playerX
+;when done A contains enemyX - playerX (world coordinates, limited to -128..127)
 GetHorizontalValues:
 	LDA arrayIndex
 	CLC
@@ -923,16 +989,115 @@ GetHorizontalValues:
 	TAY
 	
 	LDX EnemyList, Y
-	LDA BASE_SPR_ADDR+3, X ; enemies x value
+	LDA BASE_SPR_ADDR+3, X ; enemies world x low byte
 	STA tempVal1
-	LDA BASE_SPR_ADDR+3 ;the players X value
-	STA tempVal2
+	LDA BASE_SPR_ADDR+3 ; the players screen x
+	CLC
+	ADC scrollX
+	STA tempVal2 ; the players world x low byte
+	LDA scrollNT
+	ADC #$00
+	STA tempVal5 ; the players world x high byte
 	
 	SEC					 
 	LDA tempVal1  
 	SBC tempVal2 
-	STA tempVal3 ;tempVal3 is the result tempVal1 - tempVal2
-	
+	STA tempVal3
+	LDA worldNT
+	SBC tempVal5 ; high byte of the difference
+	BEQ .HiZero
+	BMI .HiNeg
+		LDA #$7F
+		STA tempVal3
+		JMP .HDone
+	.HiNeg:
+		LDA tempVal3
+		BMI .HDone
+		LDA #$80
+		STA tempVal3
+		JMP .HDone
+	.HiZero:
+		LDA tempVal3
+		BPL .HDone
+		LDA #$7F
+		STA tempVal3
+	.HDone:
+	LDA tempVal3 ; sets the flags for the caller
+	RTS
+
+; X = sprite offset. Loads the enemy's world position into the sprite memory
+EnterWorld:
+	LDA WORLD_X_LO, X
+	STA BASE_SPR_ADDR+3, X
+	LDA WORLD_Y, X
+	STA BASE_SPR_ADDR, X
+	LDA WORLD_X_HI, X
+	STA worldNT
+	LDA #$01
+	STA worldMode
+	RTS
+
+; X = sprite offset. Stores the updated world position
+ExitWorld:
+	LDA BASE_SPR_ADDR+3, X
+	STA WORLD_X_LO, X
+	LDA BASE_SPR_ADDR, X
+	STA WORLD_Y, X
+	LDA worldNT
+	STA WORLD_X_HI, X
+	LDA #$00
+	STA worldMode
+	RTS
+
+EnterEnemy:
+	LDA arrayIndex
+	CLC
+	ADC #E_spriteId
+	TAY
+	LDX EnemyList, Y
+	JMP EnterWorld
+
+ExitEnemy:
+	LDA arrayIndex
+	CLC
+	ADC #E_spriteId
+	TAY
+	LDX EnemyList, Y
+	JMP ExitWorld
+
+; Places the enemies on the screen from their world position and the scroll
+; Enemies that are not completely on screen are hidden
+RenderEnemies:
+	LDX #$10
+	.RenderLoop:
+		LDA WORLD_X_LO, X
+		SEC
+		SBC scrollX
+		STA tempVal1
+		LDA WORLD_X_HI, X
+		SBC scrollNT
+		BNE .Hide
+		LDA tempVal1
+		CMP #$F1
+		BCS .Hide
+			TAY
+			JSR UpdateSpriteH
+			LDY WORLD_Y, X
+			JSR UpdateSpriteV
+			JMP .RenderNext
+		.Hide:
+			LDA #$F8
+			STA BASE_SPR_ADDR, X
+			STA BASE_SPR_ADDR+4, X
+			STA BASE_SPR_ADDR+8, X
+			STA BASE_SPR_ADDR+12, X
+		.RenderNext:
+		TXA
+		CLC
+		ADC #$10
+		TAX
+		CPX #$10 * NUM_ENEMIES
+		BNE .RenderLoop
 	RTS
 	
 ;when done A contains enemyY - playerY
@@ -1513,17 +1678,25 @@ Move4SpriteRight:
   JSR GetSpriteAndSpeed
 	
 	LDA BASE_SPR_ADDR+3,X ; old x value
-	CLC
-	ADC #$10 ;offset 16px right
-	
 	
 	STY tempVal3	; speed
+	TYA
 	CLC
-  ADC tempVal3		
-  BCC .RightOnScreen
-  	RTS ; would leave the screen
-  .RightOnScreen:
-  STA tempVal2 ; new xValue	
+	ADC #$10 ; the right edge is 16px right
+	CLC
+	ADC BASE_SPR_ADDR+3,X
+	STA tempVal2 ; new right edge
+	BCC .RightOnScreen
+		LDA worldMode
+		BEQ .BlockRight ; Mario can't leave the screen
+		LDA worldNT
+		BNE .BlockRight ; the end of the world
+		LDA #$01
+		STA probeNT ; the right edge is on the second screen
+		JMP .RightOnScreen
+	.BlockRight:
+		RTS
+	.RightOnScreen:
   
   TXA					; sprite ID
   PHA
@@ -1555,6 +1728,14 @@ Move4SpriteRight:
   SEC
   SBC #$10
   TAY
+  
+  ; an enemy whose left edge wrapped around moved to the second screen
+  TYA
+  CMP BASE_SPR_ADDR+3,X
+  BCS .NoRightCross
+  	LDA #$01
+  	STA worldNT
+  .NoRightCross:
   
   ; Mario (sprite 0) past the scroll threshold: scroll the world instead of moving him
   CPX #$00
@@ -1589,25 +1770,6 @@ ScrollWorld:
 		LDA #$01
 		STA scrollNT
 	.ScrollDone:
-	
-	; the enemies live in the world so they move left by the same amount
-	LDX #$10
-	.ShiftEnemy:
-		LDA BASE_SPR_ADDR+3,X
-		SEC
-		SBC tempVal3
-		BCS .ShiftOk
-			LDA #$00 ; stay on the left edge instead of wrapping around
-		.ShiftOk:
-		TAY
-		JSR UpdateSpriteH
-		
-		TXA
-		CLC
-		ADC #$10
-		TAX
-		CPX #$10 * NUM_ENEMIES
-		BNE .ShiftEnemy
 	RTS
 
 ;; X -array index
@@ -1620,10 +1782,18 @@ Move4SpriteLeft:
 	STY tempVal3	; speed
 	SEC
   SBC tempVal3		
+  STA tempVal2 ; new xValue
   BCS .LeftOnScreen
-  	RTS ; would leave the screen
+  	LDA worldMode
+  	BEQ .BlockLeft ; Mario can't leave the screen
+  	LDA worldNT
+  	BEQ .BlockLeft ; the start of the world
+  	LDA #$00
+  	STA probeNT ; moving back to the first screen
+  	JMP .LeftOnScreen
+  .BlockLeft:
+  	RTS
   .LeftOnScreen:
-  STA tempVal2 ; new xValue	
   
   TXA					; sprite ID
   PHA
@@ -1651,6 +1821,15 @@ Move4SpriteLeft:
 	
   LDX tempVal1
   LDY tempVal2
+  
+  ; an enemy whose x wrapped around moved back to the first screen
+  TYA
+  CMP BASE_SPR_ADDR+3,X
+  BCC .NoLeftCross
+  BEQ .NoLeftCross
+  	LDA #$00
+  	STA worldNT
+  .NoLeftCross:
   
   ; Mario (sprite 0) left of the scroll threshold while scrolled: scroll back instead of moving him
   CPX #$00
@@ -1685,7 +1864,7 @@ ScrollWorldLeft:
 		STA scrollX
 		LDA #$00
 		STA scrollNT
-		JMP .ShiftEnemies
+		RTS
 	.SubLow:
 	LDA scrollX
 	SEC
@@ -1694,29 +1873,6 @@ ScrollWorldLeft:
 		LDA #$00 ; don't scroll past the start
 	.StoreLow:
 	STA scrollX
-	
-	; the enemies live in the world so they move right by the same amount
-	.ShiftEnemies:
-	LDX #$10
-	.ShiftEnemy:
-		LDA BASE_SPR_ADDR+3,X
-		CLC
-		ADC tempVal3
-		BCS .ClampRight
-		CMP #$F1
-		BCC .ShiftOk
-		.ClampRight:
-			LDA #$F0 ; stay on the right edge instead of wrapping around
-		.ShiftOk:
-		TAY
-		JSR UpdateSpriteH
-		
-		TXA
-		CLC
-		ADC #$10
-		TAX
-		CPX #$10 * NUM_ENEMIES
-		BNE .ShiftEnemy
 	RTS
 	
 ;X - arrayIndex
