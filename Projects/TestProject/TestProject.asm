@@ -60,6 +60,8 @@ NUM_ENEMIES	= $05 ; Mario + 3 walkers + the charger
 CHARGER_INDEX	= EnemyStructSize * 4 ; index in EnemyList
 CHARGER_SPR	= $40 ; offset in the sprite memory
 CHARGE_SPEED	= $04
+CHARGE_WALK_SPEED	= $01 ; speed while lining up with Mario
+CHARGE_ALIGN_MARGIN	= $03 ; y distance that counts as level
 CHARGE_WAIT	= $3C ; frames to wait before charging (1 second)
 
 AddrLow:  .rs 1
@@ -290,20 +292,74 @@ LoadCharacterData:
 ; until it hits a wall (hitting Mario is handled by CheckCollision)
 UpdateCharger:
 	LDA chargeState
-	BEQ .Turn
+	BNE .NotAlign
+		JMP .Turn
+	.NotAlign:
 	CMP #$01
-	BEQ .Wait
+	BNE .NotWait
+		JMP .Wait
+	.NotWait:
 	JMP .Charge
 	
 	.Turn:
-		LDA #CHARGER_INDEX
-		STA arrayIndex
-		JSR SetEnemyDirection ; sets E_hMove / E_vMove towards Mario
+		; first walk up/down until we are level with Mario
+		LDA #CHARGE_WALK_SPEED
+		STA EnemyList + CHARGER_INDEX + E_speed
+		LDA #$00
+		STA EnemyList + CHARGER_INDEX + E_hMove
 		
-		LDA EnemyList + CHARGER_INDEX + E_hMove
-		STA chargeH
-		LDA EnemyList + CHARGER_INDEX + E_vMove
+		LDA BASE_SPR_ADDR + CHARGER_SPR
+		STA chargeOldY
+		SEC
+		SBC BASE_SPR_ADDR ; Mario's y
+		BEQ .Aligned
+		BCC .MarioBelow
+			; Mario is above
+			CMP #CHARGE_ALIGN_MARGIN
+			BCC .Aligned
+			LDA #$01
+			STA EnemyList + CHARGER_INDEX + E_vMove
+			LDX #CHARGER_INDEX
+			JSR Move4SpriteUp
+			JMP .AlignStep
+		.MarioBelow:
+			EOR #$FF
+			CLC
+			ADC #$01
+			CMP #CHARGE_ALIGN_MARGIN
+			BCC .Aligned
+			LDA #$02
+			STA EnemyList + CHARGER_INDEX + E_vMove
+			LDX #CHARGER_INDEX
+			JSR Move4SpriteDown
+		.AlignStep:
+		LDA BASE_SPR_ADDR + CHARGER_SPR
+		CMP chargeOldY
+		BEQ .Aligned ; blocked by a wall, charge from here
+		LDX #CHARGER_INDEX
+		JSR UpdateAnimation
+		RTS
+		
+	.Aligned:
+		LDA #$00
+		STA EnemyList + CHARGER_INDEX + E_vMove
 		STA chargeV
+		
+		; face Mario horizontally
+		LDY #$00
+		LDA BASE_SPR_ADDR + CHARGER_SPR + 3
+		CMP BASE_SPR_ADDR + 3
+		BCC .FaceRight
+			LDA #$01
+			LDY #$01
+			JMP .SetFacing
+		.FaceRight:
+			LDA #$02
+		.SetFacing:
+		STA chargeH
+		STA EnemyList + CHARGER_INDEX + E_hMove
+		LDX #CHARGER_SPR
+		JSR MirrorSprite
 		
 		; show the facing direction right away: force an animation update
 		LDA FrameCounter
