@@ -547,6 +547,18 @@ ChargerHitCheck:
 		LDA WORLD_DEAD, X
 		BNE .NextHit
 		
+		; only enemies that are completely on screen can be hit
+		LDA WORLD_X_LO, X
+		SEC
+		SBC scrollX
+		STA tempVal1
+		LDA WORLD_X_HI, X
+		SBC scrollNT
+		BNE .NextHit
+		LDA tempVal1
+		CMP #$F1
+		BCS .NextHit
+		
 		; horizontal distance in world coordinates, must be within -15..15
 		LDA BASE_SPR_ADDR + CHARGER_SPR + 3
 		SEC
