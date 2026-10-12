@@ -55,13 +55,25 @@ BASE_SPR_ADDR		= $0200
 MARIO_RUN_SPEED	= $03
 MARIO_WALK_SPEED	= $02
 
-NUM_ENEMIES	= $04
+NUM_ENEMIES	= $05 ; Mario + 3 walkers + the charger
+
+CHARGER_INDEX	= EnemyStructSize * 4 ; index in EnemyList
+CHARGER_SPR	= $40 ; offset in the sprite memory
+CHARGE_SPEED	= $04
+CHARGE_WAIT	= $3C ; frames to wait before charging (1 second)
 
 AddrLow:  .rs 1
 AddrHigh:  .rs 1
 
 scrollX:  .rs 1 ; horizontal scroll, low 8 bits (0-255)
 scrollNT: .rs 1 ; 0 or 1, the 9th scroll bit (selects the base nametable)
+
+chargeState: .rs 1 ; 0 = turn towards player, 1 = wait, 2 = charge
+chargeTimer: .rs 1
+chargeH:     .rs 1 ; charge direction, same values as E_hMove
+chargeV:     .rs 1 ; charge direction, same values as E_vMove
+chargeOldX:  .rs 1
+chargeOldY:  .rs 1
 
 SCROLL_THRESHOLD = $80 ; Mario stops at this screen x and the world scrolls instead
 
@@ -193,6 +205,8 @@ NMI:
   JSR ReadController2 ; Controller 2
 	
   JSR UpdateNPC
+  
+  JSR UpdateCharger
 
   JSR SetMoveSpeed
 	
@@ -272,10 +286,114 @@ LoadCharacterData:
 	
 	RTS
 	
+; The charger turns towards Mario, waits a second and then charges in a straight line
+; until it hits a wall (hitting Mario is handled by CheckCollision)
+UpdateCharger:
+	LDA chargeState
+	BEQ .Turn
+	CMP #$01
+	BEQ .Wait
+	JMP .Charge
+	
+	.Turn:
+		LDA #CHARGER_INDEX
+		STA arrayIndex
+		JSR SetEnemyDirection ; sets E_hMove / E_vMove towards Mario
+		
+		LDA EnemyList + CHARGER_INDEX + E_hMove
+		STA chargeH
+		LDA EnemyList + CHARGER_INDEX + E_vMove
+		STA chargeV
+		
+		; show the facing direction right away: force an animation update
+		LDA FrameCounter
+		PHA
+		LDA #$00
+		STA FrameCounter
+		LDX #CHARGER_INDEX
+		JSR UpdateAnimation
+		PLA
+		STA FrameCounter
+		
+		LDA #$00
+		STA EnemyList + CHARGER_INDEX + E_hMove
+		STA EnemyList + CHARGER_INDEX + E_vMove
+		
+		LDA #CHARGE_WAIT
+		STA chargeTimer
+		LDA #$01
+		STA chargeState
+		RTS
+	
+	.Wait:
+		DEC chargeTimer
+		BNE .WaitDone
+			LDA chargeH
+			STA EnemyList + CHARGER_INDEX + E_hMove
+			LDA chargeV
+			STA EnemyList + CHARGER_INDEX + E_vMove
+			LDA #CHARGE_SPEED
+			STA EnemyList + CHARGER_INDEX + E_speed
+			LDA #$02
+			STA chargeState
+		.WaitDone:
+		RTS
+	
+	.Charge:
+		LDA BASE_SPR_ADDR + CHARGER_SPR + 3
+		STA chargeOldX
+		LDA BASE_SPR_ADDR + CHARGER_SPR
+		STA chargeOldY
+		
+		LDA chargeH
+		CMP #$01
+		BNE .NotLeft
+			LDX #CHARGER_INDEX
+			JSR Move4SpriteLeft
+		.NotLeft:
+		LDA chargeH
+		CMP #$02
+		BNE .NotRight
+			LDX #CHARGER_INDEX
+			JSR Move4SpriteRight
+		.NotRight:
+		LDA chargeV
+		CMP #$01
+		BNE .NotUp
+			LDX #CHARGER_INDEX
+			JSR Move4SpriteUp
+		.NotUp:
+		LDA chargeV
+		CMP #$02
+		BNE .NotDown
+			LDX #CHARGER_INDEX
+			JSR Move4SpriteDown
+		.NotDown:
+		
+		; did it move?
+		LDA BASE_SPR_ADDR + CHARGER_SPR + 3
+		CMP chargeOldX
+		BNE .Moved
+		LDA BASE_SPR_ADDR + CHARGER_SPR
+		CMP chargeOldY
+		BNE .Moved
+			; hit a wall, stop and turn towards Mario again
+			LDA #$00
+			STA EnemyList + CHARGER_INDEX + E_hMove
+			STA EnemyList + CHARGER_INDEX + E_vMove
+			STA chargeState
+			RTS
+		.Moved:
+		
+		LDX #CHARGER_INDEX
+		JSR UpdateAnimation
+		RTS
+
 ResetGame:
 	LDA #$00
 	STA scrollX
 	STA scrollNT
+	STA chargeState
 	
 	JSR LoadSprites
 	JSR LoadCharacterData
@@ -521,7 +639,7 @@ UpdateNPC:
 		ADC #EnemyStructSize
 		TAX	
 		STX arrayIndex
-		CPX #EnemyStructSize * NUM_ENEMIES
+		CPX #EnemyStructSize * ( NUM_ENEMIES - 1 ) ; the charger is updated separately
 		BNE NPCUpdateLoop
 		
 		RTS
@@ -1679,7 +1797,7 @@ UpdateSpriteH:
   .org $E000
 palette:
   .db $22,$29,$1A,$0F,  $22,$36,$17,$0F,  $22,$30,$21,$0F,  $22,$27,$17,$0F   ;;background palette
-  .db $22,$16,$29,$27,  $22,$16,$12,$27,  $22,$16,$30,$27,  $22,$16,$3F,$27    ;;sprite palette
+  .db $22,$16,$29,$27,  $22,$16,$12,$27,  $22,$16,$30,$27,  $22,$16,$15,$27    ;;sprite palette
 
 sprites:
      ;vert tile attr horiz
@@ -1703,16 +1821,16 @@ sprites:
   .DB $B8, $11, $02, $28   ;sprite 3 foot together
   
   ;enemy
-  .db $60, $00, $03, $C0   ;sprite 0 head tile small step
-  .db $60, $01, $03, $C8   ;sprite 1 head tile big step
-  .db $68, $10, $03, $C0   ;sprite 2 foot small step
-  .DB $68, $11, $03, $C8   ;sprite 3 foot small step
+  .db $60, $00, $02, $C0   ;sprite 0 head tile small step
+  .db $60, $01, $02, $C8   ;sprite 1 head tile big step
+  .db $68, $10, $02, $C0   ;sprite 2 foot small step
+  .DB $68, $11, $02, $C8   ;sprite 3 foot small step
   
   ;enemy
-  .db $80, $00, $01, $40   ;sprite 0
-  .db $80, $01, $01, $48   ;sprite 1
-  .db $88, $10, $01, $40   ;sprite 2
-  .DB $88, $11, $01, $48   ;sprite 3
+  .db $A0, $00, $03, $D0   ;sprite 0
+  .db $A0, $01, $03, $D8   ;sprite 1
+  .db $A8, $10, $03, $D0   ;sprite 2
+  .DB $A8, $11, $03, $D8   ;sprite 3
   
   ;enemy
   .db $20, $00, $02, $40   ;sprite 0
