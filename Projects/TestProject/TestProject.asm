@@ -57,6 +57,7 @@ BASE_SPR_ADDR		= $0200
 WORLD_X_LO	= $0300
 WORLD_X_HI	= $0350 ; 0 = first screen, 1 = second screen
 WORLD_Y		= $03A0
+WORLD_DEAD	= $03F0 ; non-zero when the enemy has been removed
 
 MARIO_RUN_SPEED	= $03
 MARIO_WALK_SPEED	= $02
@@ -257,7 +258,8 @@ LoadSprites:
                             STA WORLD_Y, X
                             LDA #$00
                             STA WORLD_X_HI, X
-                            TXA
+                            STA WORLD_DEAD, X
+    TXA
                             CLC
                             ADC #$10
                             TAX
@@ -513,9 +515,84 @@ ChargerLogic:
 			RTS
 		.Moved:
 		
+		JSR ChargerHitCheck
+		BEQ .NoEnemyHit
+			; ran into another enemy, it's removed and the charger stops
+			LDA #$00
+			STA EnemyList + CHARGER_INDEX + E_hMove
+			STA EnemyList + CHARGER_INDEX + E_vMove
+			STA chargeState
+			RTS
+		.NoEnemyHit:
+		
 		LDX #CHARGER_INDEX
 		JSR UpdateAnimation
 		RTS
+
+; Z set when the enemy at arrayIndex is still alive
+EnemyDeadCheck:
+	LDA arrayIndex
+	CLC
+	ADC #E_spriteId
+	TAY
+	LDX EnemyList, Y
+	LDA WORLD_DEAD, X
+	RTS
+
+; Removes the walkers the charger runs into. Returns A = 1 on a hit
+ChargerHitCheck:
+	LDX #$10
+	LDY #$00 ; hit count
+	.HitLoop:
+		LDA WORLD_DEAD, X
+		BNE .NextHit
+		
+		; horizontal distance in world coordinates, must be within -15..15
+		LDA BASE_SPR_ADDR + CHARGER_SPR + 3
+		SEC
+		SBC WORLD_X_LO, X
+		STA tempVal1
+		LDA worldNT
+		SBC WORLD_X_HI, X
+		BEQ .XPos
+		CMP #$FF
+		BNE .NextHit
+		LDA tempVal1
+		CMP #$F1
+		BCC .NextHit
+		JMP .XClose
+		.XPos:
+		LDA tempVal1
+		CMP #$10
+		BCS .NextHit
+		.XClose:
+		
+		; vertical distance, must be within -15..15
+		LDA BASE_SPR_ADDR + CHARGER_SPR
+		SEC
+		SBC WORLD_Y, X
+		BCS .YPos
+		CMP #$F1
+		BCC .NextHit
+		JMP .YClose
+		.YPos:
+		CMP #$10
+		BCS .NextHit
+		.YClose:
+		
+		LDA #$01
+		STA WORLD_DEAD, X
+		INY
+		
+		.NextHit:
+		TXA
+		CLC
+		ADC #$10
+		TAX
+		CPX #CHARGER_SPR
+		BNE .HitLoop
+	TYA
+	RTS
 
 ResetGame:
 	LDA #$00
@@ -772,6 +849,11 @@ UpdateNPC:
 	
 	NPCUpdateLoop:
 		
+		JSR EnemyDeadCheck
+		BEQ .EnemyAlive
+			JMP .NextNPC
+		.EnemyAlive:
+		
 		JSR EnterEnemy
 		
 		JSR TickNPC
@@ -784,6 +866,7 @@ UpdateNPC:
 		
 		JSR ExitEnemy
 		
+		.NextNPC:
 		;Do the increment dance
 		LDX arrayIndex
 		TXA
@@ -1100,6 +1183,8 @@ ExitEnemy:
 RenderEnemies:
 	LDX #$10
 	.RenderLoop:
+		LDA WORLD_DEAD, X
+		BNE .Hide
 		LDA WORLD_X_LO, X
 		SEC
 		SBC scrollX
