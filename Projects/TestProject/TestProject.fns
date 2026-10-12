@@ -1,4 +1,5 @@
 $C0C3#LoadSpritesLoop#0
+$C7D1#ScrollWorldLeft#0
 $C475#UpdateMario#0
 $0000#buttons1#F0
 $C2E3#SetEnemyDirection#0
@@ -17,8 +18,8 @@ $E098#collisionData#1
 $0080#SCROLL_THRESHOLD#F0
 $0005#E_hMove#F0
 $C76E#Move4SpriteLeft#0
-$C7C4#MirrorSprite#0
-$C820#UpdateSpriteV#0
+$C82C#MirrorSprite#0
+$C888#UpdateSpriteV#0
 $000B#FrameCounter#F0
 $E09A#enemyData#1
 $0000#E_spriteId#F0
@@ -79,16 +80,16 @@ $000C#arrayIndex#F0
 $0003#backgroundPtr#F0
 $C239#UpdateAnimation#0
 $0003#MARIO_RUN_SPEED#F0
-$C7D6#DoMirror#0
+$C83E#DoMirror#0
 $C5D2#ResetMoveAnimCounter#0
-$C7F4#FlipBitDone#0
+$C85C#FlipBitDone#0
 $C316#HorizontalMoveDone#0
 $0006#tempVal1#F0
 $C01D#clrmem#0
 $C1CE#CheckCollisionLoop#0
 $C0CF#LoadNametable#0
 $C006#RESET#0
-$C831#UpdateSpriteH#0
+$C899#UpdateSpriteH#0
 $C11E#ResetGame#0
 $000A#vDistance#F0
 $C373#SetMoveDown#0
@@ -97,7 +98,7 @@ $0007#E_currentAnimFrame#F0
 $C413#ReadADone#0
 $C3A1#GetVerticalValues#0
 $0007#tempVal2#F0
-$C7F2#LookLeft#0
+$C85A#LookLeft#0
 $0001#E_health#F0
 $C3FE#SetMoveSpeed#0
 $C3FD#ReadSelectDone#0
@@ -110,7 +111,7 @@ $000D#tempVal4#F0
 $C1C9#CheckCollision#0
 $C07E#NMI#0
 $C6DA#Move4SpriteRight#0
-$C7AC#GetSpriteAndSpeed#0
+$C814#GetSpriteAndSpeed#0
 $0004#xIndex#F0
 $C000#vblankwait#0
 $C697#Move4SpriteDown#0
@@ -126,7 +127,7 @@ $C52E#DoAnimation#0
 $C151#FrameCounterDone#0
 $C5DB#PlayIdle#0
 $C28C#NoUpdate#0
-$C7D2#BaseNotMirrored#0
+$C83A#BaseNotMirrored#0
 $C229#NoCollision#0
 $C152#CheckBGCollision#0
 $C3F0#CheckForReset#0

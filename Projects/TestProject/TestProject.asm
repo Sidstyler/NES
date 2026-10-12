@@ -1478,8 +1478,72 @@ Move4SpriteLeft:
   LDX tempVal1
   LDY tempVal2
   
+  ; Mario (sprite 0) left of the scroll threshold while scrolled: scroll back instead of moving him
+  CPX #$00
+  BNE .MoveLeft
+  CPY #SCROLL_THRESHOLD
+  BCS .MoveLeft
+  LDA scrollNT
+  ORA scrollX
+  BEQ .MoveLeft
+  	STY tempVal3
+  	LDA #SCROLL_THRESHOLD
+  	SEC
+  	SBC tempVal3
+  	STA tempVal3 ; scroll amount
+  	LDY #SCROLL_THRESHOLD
+  	JSR UpdateSpriteH
+  	JSR ScrollWorldLeft
+  	RTS
+  .MoveLeft:
+  
   JSR UpdateSpriteH
 	RTS 
+
+; tempVal3 = pixels to scroll left
+ScrollWorldLeft:
+	LDA scrollNT
+	BEQ .SubLow
+		; at the far right: wrap back into the first screen
+		LDA #$00
+		SEC
+		SBC tempVal3
+		STA scrollX
+		LDA #$00
+		STA scrollNT
+		JMP .ShiftEnemies
+	.SubLow:
+	LDA scrollX
+	SEC
+	SBC tempVal3
+	BCS .StoreLow
+		LDA #$00 ; don't scroll past the start
+	.StoreLow:
+	STA scrollX
+	
+	; the enemies live in the world so they move right by the same amount
+	.ShiftEnemies:
+	LDX #$10
+	.ShiftEnemy:
+		LDA BASE_SPR_ADDR+3,X
+		CLC
+		ADC tempVal3
+		BCS .ClampRight
+		CMP #$F1
+		BCC .ShiftOk
+		.ClampRight:
+			LDA #$F0 ; stay on the right edge instead of wrapping around
+		.ShiftOk:
+		TAY
+		JSR UpdateSpriteH
+		
+		TXA
+		CLC
+		ADC #$10
+		TAX
+		CPX #$10 * NUM_ENEMIES
+		BNE .ShiftEnemy
+	RTS
 	
 ;X - arrayIndex
 ;returns
